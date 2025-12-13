@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DJ Admin Dashboard with Player</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const API_URL = window.location.origin + '/api';
+
+    // Icon Components (same as before)
+    const Music = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+    );
+
+    const Trash2 = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    );
+
+    const Play = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const Pause = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const SkipForward = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+      </svg>
+    );
+
+    const Volume2 = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+      </svg>
+    );
+
+    const Users = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    );
+
+    function DJAdminDashboard() {
+      const [queue, setQueue] = useState([]);
+      const [nowPlaying, setNowPlaying] = useState(null);
+      const [stats, setStats] = useState({ totalRequests: 0, activeUsers: 0, songsPlayed: 0 });
+      const [player, setPlayer] = useState(null);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [volume, setVolume] = useState(100);
+      const [audioDevices, setAudioDevices] = useState([]);
+      const [selectedDevice, setSelectedDevice] = useState('default');
+      const [userInteracted, setUserInteracted] = useState(false);
+      const audioContextRef = React.useRef(null);
+
+      // Initialize YouTube Player
+      useEffect(() => {
+        // Request microphone permission first (this allows enumerating devices)
+        const requestAudioPermissions = async () => {
+          try {
+            // Request permission
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log('✅ Audio permissions granted');
+            
+            // Now enumerate devices
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioOutputs = devices.filter(device => device.kind === 'audiooutput');
+            console.log('📢 Found audio devices:', audioOutputs);
+            setAudioDevices(audioOutputs);
+          } catch (err) {
+            console.warn('⚠️ Could not get audio devices:', err);
+            console.log('💡 Use Windows Sound Settings to change output device');
+          }
+        };
+
+        requestAudioPermissions();
+
+        // Wait for YouTube API to be ready, then create player
+        const initPlayer = () => {
+          if (window.YT && window.YT.Player) {
+            console.log('Creating YouTube player...');
+            const ytPlayer = new window.YT.Player('youtube-player', {
+              height: '360',
+              width: '640',
+              playerVars: {
+                autoplay: 0,
+                controls: 1
+              },
+              events: {
+                onReady: (event) => {
+                  console.log('✅ YouTube Player Ready!');
+                  setPlayer(event.target);
+                  ytPlayerInstance = event.target;
+                },
+                onStateChange: (event) => {
+                  console.log('Player state changed:', event.data);
+                  if (event.data === window.YT.PlayerState.ENDED) {
+                    console.log('Song ended');
+                    handleSongEnded();
+                  } else if (event.data === window.YT.PlayerState.PLAYING) {
+                    console.log('Now playing');
+                    setIsPlaying(true);
+                  } else if (event.data === window.YT.PlayerState.PAUSED) {
+                    console.log('Paused');
+                    setIsPlaying(false);
+                  } else if (event.data === window.YT.PlayerState.BUFFERING) {
+                    console.log('Buffering...');
+                  }
+                },
+                onError: (event) => {
+                  console.error('YouTube Player Error:', event.data);
+                  alert('Error playing video. The video might be unavailable or restricted.');
+                }
+              }
+            });
+          } else {
+            console.log('YouTube API not ready yet, retrying...');
+            setTimeout(initPlayer, 500);
+          }
+        };
+
+        // Start trying to initialize
+        setTimeout(initPlayer, 1000);
+      }, []);
+
+      const loadQueue = async () => {
+        try {
+          const response = await fetch(`${API_URL}/queue`);
+          if (response.ok) {
+            const data = await response.json();
+            const newQueue = data.queue || [];
+            
+            // Only update queue if it actually changed
+            const queueChanged = JSON.stringify(queue) !== JSON.stringify(newQueue);
+            
+            if (queueChanged) {
+              console.log('Queue updated');
+              setQueue(newQueue);
+              
+              // Only change nowPlaying if current song is no longer in queue
+              if (nowPlaying) {
+                const stillInQueue = newQueue.find(s => s.id === nowPlaying.id);
+                if (!stillInQueue && newQueue.length > 0) {
+                  console.log('Current song removed from queue, loading next');
+                  setNowPlaying(newQueue[0]);
+                }
+              } else if (newQueue.length > 0) {
+                // No song playing but queue has songs
+                console.log('Setting now playing:', newQueue[0]);
+                setNowPlaying(newQueue[0]);
+              }
+            }
+            
+            // If queue is empty and something was playing, stop it
+            if (newQueue.length === 0 && nowPlaying) {
+              console.log('Queue empty, stopping playback');
+              setNowPlaying(null);
+              if (player && player.stopVideo) {
+                player.stopVideo();
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load queue:', error);
+        }
+      };
+
+      const loadStats = async () => {
+        try {
+          const response = await fetch(`${API_URL}/stats`);
+          if (response.ok) {
+            const data = await response.json();
+            setStats(data);
+          }
+        } catch (error) {
+          console.error('Failed to load stats:', error);
+        }
+      };
+
+      useEffect(() => {
+        loadQueue();
+        loadStats();
+
+        // Refresh less frequently - every 10 seconds instead of 5
+        const interval = setInterval(() => {
+          loadQueue();
+          loadStats();
+        }, 10000);
+
+        return () => clearInterval(interval);
+      }, []);
+
+      // Auto-play when nowPlaying changes
+      useEffect(() => {
+        if (nowPlaying && player && player.loadVideoById) {
+          // Check if video is already loaded
+          const currentVideoId = player.getVideoData?.()?.video_id;
+          
+          if (currentVideoId !== nowPlaying.song_id) {
+            console.log('Loading new video:', nowPlaying.song_id);
+            player.loadVideoById(nowPlaying.song_id);
+            player.setVolume(volume);
+            
+            // Try to autoplay after loading
+            setTimeout(() => {
+              if (player.playVideo && userInteracted) {
+                player.playVideo();
+                console.log('Attempting autoplay...');
+              }
+            }, 1000);
+          } else {
+            console.log('Video already loaded, not reloading');
+          }
+        }
+      }, [nowPlaying, player]);
+
+      const handleSongEnded = async () => {
+        if (!nowPlaying) return;
+
+        // Mark song as played
+        try {
+          await fetch(`${API_URL}/played/${nowPlaying.id}`, { method: 'POST' });
+          
+          // Load next song
+          loadQueue();
+          
+          // Play next automatically
+          if (queue.length > 1) {
+            setNowPlaying(queue[1]);
+          } else {
+            setNowPlaying(null);
+          }
+        } catch (error) {
+          console.error('Failed to mark song as played:', error);
+        }
+      };
+
+      const handlePlayPause = () => {
+        if (!player) {
+          console.error('Player not ready');
+          return;
+        }
+
+        setUserInteracted(true);
+        console.log('Current player state:', player.getPlayerState?.());
+        
+        if (isPlaying) {
+          player.pauseVideo();
+          console.log('Pausing video');
+        } else {
+          player.playVideo();
+          console.log('Playing video');
+        }
+      };
+
+      const handleEnableAudio = () => {
+        setUserInteracted(true);
+        if (player && nowPlaying) {
+          player.playVideo();
+        }
+      };
+
+      const handleSkipSong = async () => {
+        if (!nowPlaying) return;
+
+        try {
+          await fetch(`${API_URL}/played/${nowPlaying.id}`, { method: 'POST' });
+          loadQueue();
+          
+          if (queue.length > 1) {
+            setNowPlaying(queue[1]);
+          } else {
+            setNowPlaying(null);
+            if (player) player.stopVideo();
+          }
+        } catch (error) {
+          console.error('Failed to skip song:', error);
+        }
+      };
+
+      const handleVolumeChange = (e) => {
+        const newVolume = parseInt(e.target.value);
+        setVolume(newVolume);
+        if (player && player.setVolume) {
+          player.setVolume(newVolume);
+        }
+      };
+
+      const handleAudioDeviceChange = async (e) => {
+        const deviceId = e.target.value;
+        setSelectedDevice(deviceId);
+        
+        try {
+          // Get the YouTube iframe's audio element
+          const iframe = document.getElementById('youtube-player');
+          if (iframe && iframe.contentWindow) {
+            const audioElements = iframe.contentWindow.document.getElementsByTagName('audio');
+            const videoElements = iframe.contentWindow.document.getElementsByTagName('video');
+            
+            // Try to set sink for audio/video elements
+            const elements = [...audioElements, ...videoElements];
+            for (const element of elements) {
+              if (typeof element.setSinkId !== 'undefined') {
+                await element.setSinkId(deviceId);
+                console.log(`Audio output set to device: ${deviceId}`);
+              }
+            }
+          }
+          
+          alert(`Audio device changed! Note: YouTube player may need page refresh to fully apply changes.`);
+        } catch (err) {
+          console.error('Error changing audio device:', err);
+          alert('Could not change audio device. This feature requires HTTPS or localhost.');
+        }
+      };
+
+      const handleDeleteSong = async (queueId) => {
+        if (!confirm('Remove this song from the queue?')) return;
+
+        try {
+          const response = await fetch(`${API_URL}/queue/${queueId}`, { method: 'DELETE' });
+          if (response.ok) {
+            loadQueue();
+          }
+        } catch (error) {
+          console.error('Failed to delete song:', error);
+        }
+      };
+
+      const handleClearQueue = async () => {
+        if (!confirm('Clear the entire queue?')) return;
+
+        try {
+          const response = await fetch(`${API_URL}/queue`, { method: 'DELETE' });
+          if (response.ok) {
+            loadQueue();
+          }
+        } catch (error) {
+          console.error('Failed to clear queue:', error);
+        }
+      };
+
+      const formatDuration = (durationStr) => {
+        if (typeof durationStr === 'string' && durationStr.includes(':')) {
+          return durationStr;
+        }
+        const mins = Math.floor(parseInt(durationStr) / 60);
+        const secs = parseInt(durationStr) % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black p-6">
+          {/* YouTube Player - Now visible for debugging */}
+          <div className="fixed bottom-4 right-4 bg-black rounded-lg shadow-2xl border border-purple-500 z-50">
+            <div id="youtube-player"></div>
+          </div>
+
+          <div className="max-w-7xl mx-auto">
+            {/* Header */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="bg-gradient-to-r from-purple-500 to-blue-500 p-3 rounded-full">
+                    <Music className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-bold text-white">DJ Admin Dashboard</h1>
+                    <p className="text-purple-300">Control your song queue and playback</p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4">
+                  <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-purple-500 border-opacity-30">
+                    <div className="flex items-center gap-2 text-purple-300 mb-1">
+                      <Users className="w-4 h-4" />
+                      <span className="text-xs">Active Users</span>
+                    </div>
+                    <div className="text-2xl font-bold text-white">{stats.activeUsers}</div>
+                  </div>
+                  
+                  <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-purple-500 border-opacity-30">
+                    <div className="flex items-center gap-2 text-purple-300 mb-1">
+                      <Music className="w-4 h-4" />
+                      <span className="text-xs">Songs Played</span>
+                    </div>
+                    <div className="text-2xl font-bold text-white">{stats.songsPlayed}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Music Player Controls */}
+            {nowPlaying && (
+              <div className="mb-6 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-6 shadow-2xl">
+                <div className="flex items-center gap-2 mb-4">
+                  <Play className="w-6 h-6 text-white" />
+                  <h2 className="text-xl font-bold text-white">Now Playing</h2>
+                </div>
+
+                {/* Enable Audio Button (for first interaction) */}
+                {!userInteracted && (
+                  <div className="mb-4 bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-4">
+                    <p className="text-yellow-100 text-sm mb-3">
+                      ⚠️ Click below to enable audio playback (required by browser)
+                    </p>
+                    <button
+                      onClick={handleEnableAudio}
+                      className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded-lg transition-all"
+                    >
+                      🔊 Enable Audio & Start Playing
+                    </button>
+                  </div>
+                )}
+                
+                <div className="bg-black bg-opacity-30 rounded-lg p-4 mb-4">
+                  <div className="text-2xl font-bold text-white mb-1">{nowPlaying.title}</div>
+                  <div className="text-purple-200 text-lg mb-3">{nowPlaying.artist}</div>
+                </div>
+
+                {/* Playback Controls */}
+                <div className="space-y-4">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handlePlayPause}
+                      className="flex-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      {isPlaying ? 'Pause' : 'Play'}
+                    </button>
+                    
+                    <button
+                      onClick={handleSkipSong}
+                      className="flex-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <SkipForward className="w-5 h-5" />
+                      Skip
+                    </button>
+                  </div>
+
+                  {/* Volume Control */}
+                  <div className="flex items-center gap-3 bg-white bg-opacity-10 rounded-lg p-3">
+                    <Volume2 className="w-5 h-5 text-white flex-shrink-0" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={volume}
+                      onChange={handleVolumeChange}
+                      className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-white text-sm font-medium w-12 text-right">{volume}%</span>
+                  </div>
+
+                  {/* Audio Device Selection */}
+                  <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                    <label className="block text-white text-sm font-medium mb-2">
+                      🔊 Audio Output Device
+                    </label>
+                    
+                    {audioDevices.length > 0 ? (
+                      <>
+                        <select
+                          value={selectedDevice}
+                          onChange={handleAudioDeviceChange}
+                          className="w-full bg-gray-900 bg-opacity-50 text-white px-3 py-2 rounded-lg border border-purple-500 border-opacity-30 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
+                        >
+                          <option value="default">Default System Audio</option>
+                          {audioDevices.map(device => (
+                            <option key={device.deviceId} value={device.deviceId}>
+                              {device.label || `Audio Device ${device.deviceId.substring(0, 8)}`}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-purple-200 text-xs mt-2">
+                          Select your audio interface or speakers
+                        </p>
+                      </>
+                    ) : (
+                      <div className="bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-3">
+                        <p className="text-yellow-200 text-xs">
+                          ⚠️ Cannot detect audio devices. Use <strong>Windows Sound Settings</strong> to change output:
+                          <br />Right-click speaker icon → Sound settings → Choose output device
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Player Status */}
+                <div className="mt-4 text-center">
+                  <p className="text-purple-200 text-sm">
+                    {isPlaying ? '🎵 Playing through your speakers' : '⏸️ Paused'}
+                  </p>
+                  {!userInteracted && (
+                    <p className="text-yellow-200 text-xs mt-1">
+                      Click "Enable Audio" above to start playback
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Queue */}
+            <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-purple-500 border-opacity-30">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Music className="w-6 h-6 text-purple-400" />
+                  <h2 className="text-2xl font-bold text-white">
+                    Queue ({queue.length} {queue.length === 1 ? 'song' : 'songs'})
+                  </h2>
+                </div>
+                
+                {queue.length > 0 && (
+                  <button
+                    onClick={handleClearQueue}
+                    className="bg-red-500 bg-opacity-20 hover:bg-opacity-30 text-red-300 font-semibold py-2 px-4 rounded-lg transition-all border border-red-500 border-opacity-30"
+                  >
+                    Clear Queue
+                  </button>
+                )}
+              </div>
+
+              {queue.length === 0 ? (
+                <div className="text-center py-12">
+                  <Music className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-400 text-lg">No songs in queue</p>
+                  <p className="text-gray-500 text-sm">Waiting for requests...</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {queue.map((song, index) => (
+                    <div
+                      key={song.id}
+                      className={`bg-gray-900 bg-opacity-50 rounded-lg p-4 border transition-all ${
+                        index === 0
+                          ? 'border-purple-500 border-opacity-50 bg-purple-900 bg-opacity-20'
+                          : 'border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold text-sm">{index + 1}</span>
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white font-semibold mb-1 truncate">
+                            {song.title}
+                            {index === 0 && (
+                              <span className="ml-2 text-xs bg-purple-500 px-2 py-1 rounded">
+                                NOW PLAYING
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-gray-400 text-sm truncate">{song.artist}</div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <span className="text-purple-400 text-sm font-medium">
+                            {formatDuration(song.duration)}
+                          </span>
+                          
+                          <button
+                            onClick={() => handleDeleteSong(song.id)}
+                            className="p-2 bg-red-500 bg-opacity-20 hover:bg-opacity-30 rounded-lg transition-all border border-red-500 border-opacity-30 group"
+                            title="Remove from queue"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400 group-hover:text-red-300" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer Info */}
+            <div className="mt-6 text-center">
+              <p className="text-purple-300 text-sm mb-2">
+                🔊 Audio playing through your selected device • Auto-refreshing every 10 seconds
+              </p>
+              <div className="flex gap-4 justify-center">
+                <a href="/" className="text-purple-400 hover:text-purple-300 text-sm underline">User Interface</a>
+                <a href="/settings.html" className="text-purple-400 hover:text-purple-300 text-sm underline">Settings</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DJAdminDashboard />);
+  </script>
+</body>
+</html>
