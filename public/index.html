@@ -4,10 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DJ Song Requests</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Ensure dropdown is above everything */
+    .search-dropdown {
+      position: absolute;
+      z-index: 9999 !important;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -163,7 +171,16 @@
             if (settingsRes.ok) {
               const settingsData = await settingsRes.json();
               if (settingsData.settings) {
-                setSettings(settingsData.settings);
+                // Ensure colors object exists
+                const loadedSettings = settingsData.settings;
+                if (!loadedSettings.colors) {
+                  loadedSettings.colors = {
+                    primary: '#8b5cf6',
+                    secondary: '#3b82f6',
+                    background: '#1e1b4e'
+                  };
+                }
+                setSettings(loadedSettings);
               }
             }
 
@@ -284,69 +301,60 @@
         return isInQueue || isRecentlyPlayed;
       };
 
-      const formatTime = (seconds) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-      };
+      // Get colors safely
+      const colors = settings.colors || { primary: '#8b5cf6', secondary: '#3b82f6', background: '#1e1b4e' };
 
-      const formatDuration = (durationStr) => {
-        if (typeof durationStr === 'string' && durationStr.includes(':')) {
-          return durationStr;
-        }
-        return formatTime(parseInt(durationStr) || 0);
-      };
-
+      // Welcome Modal
       if (showWelcome) {
-        const bgGradient = `linear-gradient(to bottom right, ${settings.colors.background}, ${settings.colors.primary}40, black)`;
-        const buttonGradient = `linear-gradient(to right, ${settings.colors.primary}, ${settings.colors.secondary})`;
-        const accentGradient = `linear-gradient(to right, ${settings.colors.primary}cc, ${settings.colors.secondary}cc)`;
-        
         return (
-          <div className="min-h-screen flex items-center justify-center p-4" style={{ background: bgGradient }}>
-            <div className="max-w-md w-full bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-opacity-30" style={{ borderColor: settings.colors.primary }}>
-              <div className="flex justify-center mb-6">
-                <div className="p-4 rounded-full" style={{ background: buttonGradient }}>
-                  <Music className="w-12 h-12 text-white" />
+          <div className="min-h-screen flex items-center justify-center p-4" style={{ 
+            background: `linear-gradient(to br, ${colors.background}, ${colors.primary}20)`
+          }}>
+            <div className="max-w-md w-full bg-black bg-opacity-60 backdrop-blur-lg rounded-3xl p-8 shadow-2xl border border-opacity-30" style={{ borderColor: colors.primary }}>
+              <div className="text-center mb-8">
+                <div className="mx-auto mb-4 w-20 h-20 rounded-full flex items-center justify-center" style={{
+                  background: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})`
+                }}>
+                  <Music className="w-10 h-10 text-white" />
+                </div>
+                <h1 className="text-3xl font-bold text-white mb-2">
+                  {settings.eventName || '🎵 DJ Song Requests'}
+                </h1>
+                <p className="text-purple-200">
+                  {settings.customMessage || 'Request your favorite songs!'}
+                </p>
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4">
+                  <Search className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Search Songs</div>
+                    <div className="text-gray-400 text-sm">Find your favorite songs from YouTube Music</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4">
+                  <Clock className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Queue Limits</div>
+                    <div className="text-gray-400 text-sm">Max {MAX_USER_REQUESTS} songs per person, 30s cooldown between requests</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4">
+                  <CheckCircle className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Auto-Play</div>
+                    <div className="text-gray-400 text-sm">Songs play automatically with professional crossfading</div>
+                  </div>
                 </div>
               </div>
-              
-              <h1 className="text-3xl font-bold text-white text-center mb-2">
-                {settings.eventName || 'Welcome to DJ Requests'}
-              </h1>
-              
-              {settings.customMessage && (
-                <p className="text-purple-200 text-center mb-4 text-sm">
-                  {settings.customMessage}
-                </p>
-              )}
-              
-              <div className="rounded-lg p-6 mb-6" style={{ background: accentGradient }}>
-                <h2 className="text-white font-semibold mb-3 text-lg">How to Request:</h2>
-                <ol className="text-white space-y-2 text-sm">
-                  <li className="flex items-start">
-                    <span className="font-bold mr-2">1.</span>
-                    <span>Type the song name you want to hear</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="font-bold mr-2">2.</span>
-                    <span>Select your song from the dropdown</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="font-bold mr-2">3.</span>
-                    <span>Click "Request" and enjoy!</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="font-bold mr-2">4.</span>
-                    <span>Max {MAX_USER_REQUESTS} songs per person in queue</span>
-                  </li>
-                </ol>
-              </div>
-              
+
               <button
                 onClick={() => setShowWelcome(false)}
-                className="w-full text-white font-bold py-4 rounded-lg transition-all transform hover:scale-105 shadow-lg"
-                style={{ background: buttonGradient }}
+                className="w-full py-4 rounded-xl text-white font-bold text-lg transition-all transform hover:scale-105 shadow-lg"
+                style={{
+                  background: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})`
+                }}
               >
                 Start Requesting Songs
               </button>
@@ -355,96 +363,77 @@
         );
       }
 
-      const upcomingSongs = queuedSongs.slice(1, showFullQueue ? undefined : 6);
-      const hasMoreSongs = queuedSongs.length > 6;
-      
-      const bgGradient = `linear-gradient(to bottom right, ${settings.colors.background}, ${settings.colors.primary}40, black)`;
-      const headerGradient = `linear-gradient(to right, ${settings.colors.primary}, ${settings.colors.secondary})`;
-
       return (
-        <div className="min-h-screen p-4" style={{ background: bgGradient }}>
-          <div className="max-w-2xl mx-auto pt-8">
-            <div className="text-center mb-8">
-              <div className="flex justify-center mb-4">
-                <div className="p-3 rounded-full" style={{ background: headerGradient }}>
-                  <Music className="w-8 h-8 text-white" />
-                </div>
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">
-                {settings.eventName || 'Request Your Song'}
+        <div className="min-h-screen p-4 pb-24" style={{ 
+          background: `linear-gradient(to br, ${colors.background}, ${colors.primary}20)`
+        }}>
+          <div className="max-w-lg mx-auto">
+            {/* Header */}
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-white mb-1">
+                {settings.eventName || '🎵 DJ Song Requests'}
               </h1>
-              <p className="text-purple-300">Search and add songs to the DJ queue</p>
+              {settings.customMessage && (
+                <p className="text-purple-200 text-sm">{settings.customMessage}</p>
+              )}
             </div>
 
+            {/* Now Playing */}
             {nowPlaying && (
-              <div className="mb-6 rounded-2xl p-5 shadow-2xl" style={{ background: headerGradient }}>
-                <div className="flex items-center gap-2 mb-3">
+              <div className="mb-6 bg-gradient-to-r rounded-2xl p-4 shadow-2xl" style={{
+                backgroundImage: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})`
+              }}>
+                <div className="flex items-center gap-2 mb-2">
                   <PlayCircle className="w-5 h-5 text-white" />
-                  <span className="text-white font-semibold text-sm">NOW PLAYING</span>
+                  <span className="text-white text-sm font-medium">Now Playing</span>
                 </div>
-                
-                <div className="bg-black bg-opacity-30 rounded-lg p-4">
-                  <div className="text-xl font-bold text-white mb-1 truncate">{nowPlaying.title}</div>
-                  <div className="text-purple-200 truncate">{nowPlaying.artist}</div>
-                </div>
+                <div className="text-white font-bold text-lg truncate">{nowPlaying.title}</div>
+                <div className="text-purple-100 text-sm truncate">{nowPlaying.artist}</div>
               </div>
             )}
 
+            {/* Queue Preview */}
             {queuedSongs.length > 1 && (
-              <div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-5 shadow-2xl border border-opacity-30" style={{ borderColor: settings.colors.primary }}>
-                <div className="flex items-center justify-between mb-4">
+              <div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-opacity-30" style={{ borderColor: colors.primary }}>
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <List className="w-5 h-5 text-purple-400" />
-                    <h2 className="text-lg font-bold text-white">
-                      Coming Up Next ({queuedSongs.length - 1} {queuedSongs.length === 2 ? 'song' : 'songs'})
-                    </h2>
+                    <span className="text-white font-medium">Up Next ({queuedSongs.length - 1} songs)</span>
                   </div>
+                  <button
+                    onClick={() => setShowFullQueue(!showFullQueue)}
+                    className="text-purple-400 hover:text-white transition-colors"
+                  >
+                    {showFullQueue ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  </button>
                 </div>
-
+                
                 <div className="space-y-2">
-                  {upcomingSongs.map((song, index) => (
-                    <div key={song.id} className="bg-gray-900 bg-opacity-50 rounded-lg p-3 border border-gray-700">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: settings.colors.primary }}>
-                          <span className="text-white font-bold text-xs">{index + 1}</span>
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="text-white font-medium text-sm truncate">{song.title}</div>
-                          <div className="text-gray-400 text-xs truncate">{song.artist}</div>
-                        </div>
-                        
-                        <span className="text-purple-400 text-xs font-medium whitespace-nowrap">
-                          {formatDuration(song.duration)}
-                        </span>
+                  {(showFullQueue ? queuedSongs.slice(1) : queuedSongs.slice(1, 4)).map((song, idx) => (
+                    <div key={song.id || idx} className="flex items-center gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-2">
+                      <div className="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                        {idx + 2}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm font-medium truncate">{song.title}</div>
+                        <div className="text-gray-400 text-xs truncate">{song.artist}</div>
                       </div>
                     </div>
                   ))}
+                  {!showFullQueue && queuedSongs.length > 4 && (
+                    <button
+                      onClick={() => setShowFullQueue(true)}
+                      className="text-purple-400 text-sm hover:text-white transition-colors w-full text-center py-1"
+                    >
+                      +{queuedSongs.length - 4} more songs
+                    </button>
+                  )}
                 </div>
-
-                {hasMoreSongs && (
-                  <button
-                    onClick={() => setShowFullQueue(!showFullQueue)}
-                    className="w-full mt-3 bg-opacity-30 hover:bg-opacity-40 text-purple-200 font-medium py-2 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
-                    style={{ backgroundColor: settings.colors.primary }}
-                  >
-                    {showFullQueue ? (
-                      <>
-                        <ChevronUp className="w-4 h-4" />
-                        Show Less
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="w-4 h-4" />
-                        Show All {queuedSongs.length - 1} Songs
-                      </>
-                    )}
-                  </button>
-                )}
               </div>
             )}
 
-            <div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-opacity-30 flex items-center justify-between" style={{ borderColor: settings.colors.primary }}>
+            {/* Your Requests Counter */}
+            <div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-opacity-30 flex items-center justify-between" style={{ borderColor: colors.primary }}>
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-purple-400" />
                 <span className="text-purple-200 font-medium">Your Requests in Queue</span>
@@ -454,6 +443,7 @@
               </div>
             </div>
 
+            {/* Success/Error Messages */}
             {requestSuccess && (
               <div className="mb-6 bg-green-500 bg-opacity-20 border border-green-500 rounded-lg p-4 flex items-center gap-3">
                 <CheckCircle className="w-6 h-6 text-green-400" />
@@ -476,7 +466,8 @@
               </div>
             )}
 
-            <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30 mb-6" style={{ borderColor: settings.colors.primary }}>
+            {/* Search Box - with relative positioning for dropdown */}
+            <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30 mb-6" style={{ borderColor: colors.primary }}>
               <div className="relative" ref={searchRef}>
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-purple-400 w-5 h-5" />
@@ -502,8 +493,9 @@
                   </p>
                 )}
 
+                {/* Search Results Dropdown - HIGH Z-INDEX */}
                 {showDropdown && searchResults.length > 0 && (
-                  <div className="absolute w-full mt-2 bg-gray-900 rounded-lg border border-purple-500 border-opacity-30 shadow-2xl max-h-96 overflow-y-auto z-50">
+                  <div className="search-dropdown absolute left-0 right-0 mt-2 bg-gray-900 rounded-lg border border-purple-500 border-opacity-30 shadow-2xl max-h-80 overflow-y-auto">
                     {searchResults.map((song) => {
                       const unavailable = isSongUnavailable(song);
                       const onCooldown = cooldownSeconds > 0;
@@ -551,8 +543,9 @@
               </div>
             </div>
 
+            {/* Your Recent Requests - MOVED BELOW SEARCH */}
             {recentRequests.length > 0 && (
-              <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30" style={{ borderColor: settings.colors.primary }}>
+              <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30 mb-6" style={{ borderColor: colors.primary }}>
                 <div className="flex items-center gap-2 mb-4">
                   <Clock className="w-5 h-5 text-purple-400" />
                   <h2 className="text-xl font-bold text-white">Your Recent Requests</h2>
@@ -577,6 +570,7 @@
               </div>
             )}
 
+            {/* Footer Links */}
             <div className="text-center mt-8 text-purple-300 text-sm">
               <button
                 onClick={() => setShowWelcome(true)}

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Event Settings</title>
+  <title>Event Settings - DJ Song Requests</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -15,6 +16,13 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
     const API_URL = window.location.origin + '/api';
+
+    // Default colors
+    const DEFAULT_COLORS = {
+      primary: '#8b5cf6',
+      secondary: '#3b82f6',
+      background: '#1e1b4e'
+    };
 
     // Icon Components
     const Settings = ({ className }) => (
@@ -126,30 +134,53 @@
         theme: 'general',
         explicitAllowed: true,
         allowedGenres: ['All Genres'],
-        colors: { primary: '#8b5cf6', secondary: '#3b82f6', background: '#1e1b4e' },
+        colors: { ...DEFAULT_COLORS },
         eventName: '',
         customMessage: ''
       });
 
       const [isSaving, setIsSaving] = useState(false);
       const [saveSuccess, setSaveSuccess] = useState(false);
+      const [isLoading, setIsLoading] = useState(true);
+      const [loadError, setLoadError] = useState(null);
 
       useEffect(() => {
         loadSettings();
       }, []);
 
       const loadSettings = async () => {
+        setIsLoading(true);
+        setLoadError(null);
         try {
           const response = await fetch(`${API_URL}/settings`);
           if (response.ok) {
             const data = await response.json();
             if (data.settings) {
-              setSettings(data.settings);
+              // Ensure colors object exists with defaults
+              const loadedSettings = {
+                theme: data.settings.theme || 'general',
+                explicitAllowed: data.settings.explicit_allowed !== undefined ? data.settings.explicit_allowed : true,
+                allowedGenres: data.settings.allowed_genres || ['All Genres'],
+                colors: data.settings.colors || { ...DEFAULT_COLORS },
+                eventName: data.settings.event_name || '',
+                customMessage: data.settings.custom_message || ''
+              };
+              
+              // Ensure all color properties exist
+              if (!loadedSettings.colors.primary) loadedSettings.colors.primary = DEFAULT_COLORS.primary;
+              if (!loadedSettings.colors.secondary) loadedSettings.colors.secondary = DEFAULT_COLORS.secondary;
+              if (!loadedSettings.colors.background) loadedSettings.colors.background = DEFAULT_COLORS.background;
+              
+              setSettings(loadedSettings);
             }
+          } else {
+            setLoadError('Failed to load settings from server');
           }
         } catch (error) {
           console.error('Failed to load settings:', error);
+          setLoadError('Failed to connect to server');
         }
+        setIsLoading(false);
       };
 
       const handleThemeChange = (themeKey) => {
@@ -159,7 +190,7 @@
           theme: themeKey,
           explicitAllowed: theme.explicitAllowed,
           allowedGenres: theme.genres,
-          colors: theme.defaultColors
+          colors: { ...theme.defaultColors }
         });
       };
 
@@ -194,8 +225,41 @@
 
       const handleResetColors = () => {
         const theme = THEME_PRESETS[settings.theme];
-        setSettings({ ...settings, colors: theme.defaultColors });
+        setSettings({ ...settings, colors: { ...theme.defaultColors } });
       };
+
+      // Get colors safely
+      const colors = settings.colors || DEFAULT_COLORS;
+
+      // Loading state
+      if (isLoading) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+              <p className="text-purple-300">Loading settings...</p>
+            </div>
+          </div>
+        );
+      }
+
+      // Error state
+      if (loadError) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black flex items-center justify-center p-6">
+            <div className="bg-red-500 bg-opacity-20 border border-red-500 rounded-lg p-6 max-w-md text-center">
+              <h2 className="text-xl font-bold text-red-300 mb-2">Error Loading Settings</h2>
+              <p className="text-red-200 mb-4">{loadError}</p>
+              <button
+                onClick={loadSettings}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        );
+      }
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black p-6">
@@ -235,7 +299,7 @@
                   </label>
                   <input
                     type="text"
-                    value={settings.eventName}
+                    value={settings.eventName || ''}
                     onChange={(e) => setSettings({ ...settings, eventName: e.target.value })}
                     placeholder="Sarah & John's Wedding"
                     className="w-full bg-gray-900 bg-opacity-50 text-white px-4 py-3 rounded-lg border border-purple-500 border-opacity-30 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
@@ -247,7 +311,7 @@
                     Custom Welcome Message (Optional)
                   </label>
                   <textarea
-                    value={settings.customMessage}
+                    value={settings.customMessage || ''}
                     onChange={(e) => setSettings({ ...settings, customMessage: e.target.value })}
                     placeholder="Thanks for celebrating with us! Request your favorite songs."
                     rows={3}
@@ -293,9 +357,9 @@
 
               {/* Current Theme Info */}
               <div className="mt-4 bg-purple-500 bg-opacity-20 border border-purple-500 rounded-lg p-4">
-                <h3 className="text-purple-200 font-semibold mb-2">Selected Theme: {THEME_PRESETS[settings.theme].name}</h3>
+                <h3 className="text-purple-200 font-semibold mb-2">Selected Theme: {THEME_PRESETS[settings.theme]?.name || 'General'}</h3>
                 <div className="text-purple-300 text-sm mb-2">
-                  <strong>Allowed Genres:</strong> {settings.allowedGenres.join(', ')}
+                  <strong>Allowed Genres:</strong> {(settings.allowedGenres || ['All Genres']).join(', ')}
                 </div>
                 <div className="text-purple-300 text-sm">
                   <strong>Explicit Content:</strong> {settings.explicitAllowed ? 'Allowed' : 'Blocked'}
@@ -370,13 +434,13 @@
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      value={settings.colors.primary}
+                      value={colors.primary || DEFAULT_COLORS.primary}
                       onChange={(e) => handleColorChange('primary', e.target.value)}
                       className="w-16 h-12 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={settings.colors.primary}
+                      value={colors.primary || DEFAULT_COLORS.primary}
                       onChange={(e) => handleColorChange('primary', e.target.value)}
                       className="flex-1 bg-gray-900 bg-opacity-50 text-white px-3 py-2 rounded-lg border border-purple-500 border-opacity-30 text-sm"
                     />
@@ -391,13 +455,13 @@
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      value={settings.colors.secondary}
+                      value={colors.secondary || DEFAULT_COLORS.secondary}
                       onChange={(e) => handleColorChange('secondary', e.target.value)}
                       className="w-16 h-12 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={settings.colors.secondary}
+                      value={colors.secondary || DEFAULT_COLORS.secondary}
                       onChange={(e) => handleColorChange('secondary', e.target.value)}
                       className="flex-1 bg-gray-900 bg-opacity-50 text-white px-3 py-2 rounded-lg border border-purple-500 border-opacity-30 text-sm"
                     />
@@ -412,13 +476,13 @@
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      value={settings.colors.background}
+                      value={colors.background || DEFAULT_COLORS.background}
                       onChange={(e) => handleColorChange('background', e.target.value)}
                       className="w-16 h-12 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={settings.colors.background}
+                      value={colors.background || DEFAULT_COLORS.background}
                       onChange={(e) => handleColorChange('background', e.target.value)}
                       className="flex-1 bg-gray-900 bg-opacity-50 text-white px-3 py-2 rounded-lg border border-purple-500 border-opacity-30 text-sm"
                     />
@@ -428,13 +492,13 @@
 
               {/* Color Preview */}
               <div className="mt-4 p-6 rounded-lg" style={{ 
-                background: `linear-gradient(to br, ${settings.colors.background}, ${settings.colors.primary}20)`
+                background: `linear-gradient(to br, ${colors.background || DEFAULT_COLORS.background}, ${colors.primary || DEFAULT_COLORS.primary}20)`
               }}>
                 <div className="text-center">
                   <div
                     className="inline-block px-6 py-3 rounded-lg font-bold text-white mb-2"
                     style={{ 
-                      background: `linear-gradient(to r, ${settings.colors.primary}, ${settings.colors.secondary})`
+                      background: `linear-gradient(to r, ${colors.primary || DEFAULT_COLORS.primary}, ${colors.secondary || DEFAULT_COLORS.secondary})`
                     }}
                   >
                     Preview Button
@@ -460,7 +524,7 @@
             <div className="mt-6 text-center">
               <div className="flex gap-4 justify-center">
                 <a href="/" className="text-purple-400 hover:text-purple-300 text-sm underline">User Interface</a>
-                <a href="/admin.html" className="text-purple-400 hover:text-purple-300 text-sm underline">Admin Dashboard</a>
+                <a href="/admin-player.html" className="text-purple-400 hover:text-purple-300 text-sm underline">Admin Dashboard</a>
               </div>
             </div>
           </div>
