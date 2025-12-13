@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DJ Admin Dashboard - Auto Player</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const API_URL = window.location.origin + '/api';
+    const PLAYER_URL = 'http://localhost:8888';
+
+    // Icon Components
+    const Music = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+    );
+
+    const Trash2 = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    );
+
+    const Play = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const Pause = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const SkipForward = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+      </svg>
+    );
+
+    const Volume2 = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+      </svg>
+    );
+
+    const Users = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    );
+
+    function DJAdminDashboard() {
+      const [queue, setQueue] = useState([]);
+      const [nowPlaying, setNowPlaying] = useState(null);
+      const [stats, setStats] = useState({ totalRequests: 0, activeUsers: 0, songsPlayed: 0 });
+      const [playerStatus, setPlayerStatus] = useState({ is_playing: false, is_paused: false, position: 0, duration: 0, volume: 100 });
+      const [volume, setVolume] = useState(100);
+      const [localVolume, setLocalVolume] = useState(100); // Local state for slider
+      const [isDragging, setIsDragging] = useState(false);
+
+      const loadQueue = async () => {
+        try {
+          const response = await fetch(`${API_URL}/queue`);
+          if (response.ok) {
+            const data = await response.json();
+            setQueue(data.queue || []);
+            
+            if (data.queue && data.queue.length > 0) {
+              setNowPlaying(data.queue[0]);
+            } else {
+              setNowPlaying(null);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load queue:', error);
+        }
+      };
+
+      const loadPlayerStatus = async () => {
+        try {
+          const response = await fetch(`${PLAYER_URL}/status`);
+          if (response.ok) {
+            const data = await response.json();
+            setPlayerStatus(data);
+            // Only update volume display if not dragging
+            if (!isDragging && data.volume !== undefined) {
+              setVolume(data.volume);
+              setLocalVolume(data.volume);
+            }
+          }
+        } catch (error) {
+          // Player might not be running
+        }
+      };
+
+      const loadStats = async () => {
+        try {
+          const response = await fetch(`${API_URL}/stats`);
+          if (response.ok) {
+            const data = await response.json();
+            setStats(data);
+          }
+        } catch (error) {
+          console.error('Failed to load stats:', error);
+        }
+      };
+
+      useEffect(() => {
+        loadQueue();
+        loadPlayerStatus();
+        loadStats();
+
+        const interval = setInterval(() => {
+          loadQueue();
+          loadPlayerStatus();
+          loadStats();
+        }, 2000);
+
+        return () => clearInterval(interval);
+      }, [isDragging]);
+
+      const handleSkipSong = async () => {
+        try {
+          await fetch(`${PLAYER_URL}/skip`, { method: 'POST' });
+          setTimeout(loadQueue, 500);
+        } catch (error) {
+          console.error('Failed to skip song:', error);
+        }
+      };
+
+      const handlePauseResume = async () => {
+        try {
+          // Check is_paused to determine action
+          const endpoint = playerStatus.is_paused ? '/resume' : '/pause';
+          console.log(`Calling ${endpoint}, is_paused: ${playerStatus.is_paused}`);
+          await fetch(`${PLAYER_URL}${endpoint}`, { method: 'POST' });
+          setTimeout(loadPlayerStatus, 300);
+        } catch (error) {
+          console.error('Failed to pause/resume:', error);
+        }
+      };
+
+      // Volume slider - only update local state while dragging
+      const handleVolumeInput = (e) => {
+        const newVolume = parseInt(e.target.value);
+        setLocalVolume(newVolume);
+        setIsDragging(true);
+      };
+
+      // When slider is released, send the volume to server
+      const handleVolumeChange = async () => {
+        setIsDragging(false);
+        setVolume(localVolume);
+        
+        try {
+          console.log(`Setting volume to ${localVolume}%`);
+          await fetch(`${PLAYER_URL}/volume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ volume: localVolume })
+          });
+        } catch (error) {
+          console.error('Failed to set volume:', error);
+        }
+      };
+
+      const handleDeleteSong = async (queueId) => {
+        if (!confirm('Remove this song from the queue?')) return;
+
+        try {
+          const response = await fetch(`${API_URL}/queue/${queueId}`, { method: 'DELETE' });
+          if (response.ok) {
+            loadQueue();
+          }
+        } catch (error) {
+          console.error('Failed to delete song:', error);
+        }
+      };
+
+      const handleClearQueue = async () => {
+        if (!confirm('Clear the entire queue?')) return;
+
+        try {
+          const response = await fetch(`${API_URL}/queue`, { method: 'DELETE' });
+          if (response.ok) {
+            loadQueue();
+          }
+        } catch (error) {
+          console.error('Failed to clear queue:', error);
+        }
+      };
+
+      const formatTime = (seconds) => {
+        if (!seconds || isNaN(seconds)) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+      };
+
+      const formatDuration = (duration) => {
+        if (!duration) return '--:--';
+        return duration;
+      };
+
+      // Determine actual state
+      const isPaused = playerStatus.is_paused === true;
+      const isPlaying = playerStatus.is_playing === true && !isPaused;
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+          <div className="max-w-4xl mx-auto p-6">
+            {/* Header */}
+            <div className="mb-8 text-center">
+              <h1 className="text-4xl font-bold text-white mb-2">🎛️ DJ Admin Dashboard</h1>
+              <p className="text-purple-300">Auto Player Control Panel</p>
+            </div>
+
+            {/* Stats */}
+            <div className="mb-6 grid grid-cols-3 gap-4">
+              <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-xl p-4 border border-purple-500 border-opacity-30">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
+                    <Music className="w-4 h-4" />
+                    <span className="text-xs">In Queue</span>
+                  </div>
+                  <div className="text-2xl font-bold text-white">{queue.length}</div>
+                </div>
+              </div>
+              <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-xl p-4 border border-purple-500 border-opacity-30">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
+                    <Users className="w-4 h-4" />
+                    <span className="text-xs">Active Users</span>
+                  </div>
+                  <div className="text-2xl font-bold text-white">{stats.activeUsers}</div>
+                </div>
+              </div>
+              <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-xl p-4 border border-purple-500 border-opacity-30">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
+                    <Music className="w-4 h-4" />
+                    <span className="text-xs">Songs Played</span>
+                  </div>
+                  <div className="text-2xl font-bold text-white">{stats.songsPlayed}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Now Playing */}
+            {nowPlaying && (
+              <div className="mb-6 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-6 shadow-2xl">
+                <div className="flex items-center gap-2 mb-4">
+                  {isPaused ? (
+                    <Pause className="w-6 h-6 text-yellow-300" />
+                  ) : (
+                    <Play className="w-6 h-6 text-white" />
+                  )}
+                  <h2 className="text-xl font-bold text-white">
+                    {isPaused ? '⏸️ Paused' : '▶️ Now Playing'}
+                  </h2>
+                </div>
+                
+                <div className="bg-black bg-opacity-30 rounded-lg p-4 mb-4">
+                  <div className="text-2xl font-bold text-white mb-1">{nowPlaying.title}</div>
+                  <div className="text-purple-200 text-lg mb-3">{nowPlaying.artist}</div>
+                  
+                  {/* Progress Bar */}
+                  {playerStatus.duration > 0 && (
+                    <div className="mb-3">
+                      <div className="flex justify-between text-sm text-purple-200 mb-1">
+                        <span>{formatTime(playerStatus.position)}</span>
+                        <span>{formatTime(playerStatus.duration - playerStatus.position)} remaining</span>
+                        <span>{formatTime(playerStatus.duration)}</span>
+                      </div>
+                      <div className="h-2 bg-black bg-opacity-50 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-500 ${
+                            isPaused 
+                              ? 'bg-yellow-400' 
+                              : 'bg-gradient-to-r from-purple-400 to-blue-400'
+                          }`}
+                          style={{ width: `${(playerStatus.position / playerStatus.duration) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Playback Controls */}
+                <div className="space-y-4">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handlePauseResume}
+                      className={`flex-1 font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2 ${
+                        isPaused 
+                          ? 'bg-green-500 hover:bg-green-600 text-white' 
+                          : 'bg-white bg-opacity-20 hover:bg-opacity-30 text-white'
+                      }`}
+                    >
+                      {isPaused ? (
+                        <>
+                          <Play className="w-5 h-5" />
+                          Resume
+                        </>
+                      ) : (
+                        <>
+                          <Pause className="w-5 h-5" />
+                          Pause
+                        </>
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={handleSkipSong}
+                      className="flex-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      <SkipForward className="w-5 h-5" />
+                      Skip Song
+                    </button>
+                  </div>
+
+                  {/* Volume Control */}
+                  <div className="bg-white bg-opacity-10 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
+                      <Volume2 className="w-5 h-5 text-white flex-shrink-0" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={localVolume}
+                        onInput={handleVolumeInput}
+                        onChange={handleVolumeChange}
+                        onMouseUp={handleVolumeChange}
+                        onTouchEnd={handleVolumeChange}
+                        className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <span className="text-white text-sm font-medium w-12 text-right">{localVolume}%</span>
+                    </div>
+                    <p className="text-purple-200 text-xs text-center mt-2">
+                      💡 Volume applies to next song (drag and release)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Player Status */}
+                <div className="mt-4 text-center">
+                  <p className="text-purple-200 text-sm">
+                    {isPaused 
+                      ? `⏸️ Paused at ${formatTime(playerStatus.position)} - Click Resume to continue`
+                      : isPlaying 
+                        ? '🎵 Playing with 10-second crossfade overlap' 
+                        : '⏹️ Waiting for songs...'
+                    }
+                  </p>
+                  {queue.length > 1 && (
+                    <p className="text-purple-300 text-xs mt-1">
+                      📥 Pre-downloading next {Math.min(3, queue.length - 1)} song{queue.length > 2 ? 's' : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* No song playing message */}
+            {!nowPlaying && (
+              <div className="mb-6 bg-gradient-to-r from-gray-700 to-gray-800 rounded-2xl p-6 shadow-2xl text-center">
+                <Music className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                <h2 className="text-xl font-bold text-gray-300 mb-2">No Song Playing</h2>
+                <p className="text-gray-400">Add songs to the queue to start playback</p>
+              </div>
+            )}
+
+            {/* Queue */}
+            <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-purple-500 border-opacity-30">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Music className="w-6 h-6 text-purple-400" />
+                  <h2 className="text-2xl font-bold text-white">
+                    Queue ({queue.length} {queue.length === 1 ? 'song' : 'songs'})
+                  </h2>
+                </div>
+                
+                {queue.length > 0 && (
+                  <button
+                    onClick={handleClearQueue}
+                    className="bg-red-500 bg-opacity-20 hover:bg-opacity-30 text-red-300 font-semibold py-2 px-4 rounded-lg transition-all border border-red-500 border-opacity-30"
+                  >
+                    Clear Queue
+                  </button>
+                )}
+              </div>
+
+              {queue.length === 0 ? (
+                <div className="text-center py-12">
+                  <Music className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-400 text-lg">No songs in queue</p>
+                  <p className="text-gray-500 text-sm">Waiting for requests...</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {queue.map((song, index) => (
+                    <div
+                      key={song.id}
+                      className={`bg-gray-900 bg-opacity-50 rounded-lg p-4 border transition-all ${
+                        index === 0
+                          ? isPaused 
+                            ? 'border-yellow-500 border-opacity-50 bg-yellow-900 bg-opacity-20'
+                            : 'border-purple-500 border-opacity-50 bg-purple-900 bg-opacity-20'
+                          : index < 3
+                          ? 'border-blue-500 border-opacity-30'
+                          : 'border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                          index === 0 && isPaused ? 'bg-yellow-600' : 'bg-purple-600'
+                        }`}>
+                          <span className="text-white font-bold text-sm">{index + 1}</span>
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white font-semibold mb-1 truncate flex items-center gap-2">
+                            {song.title}
+                            {index === 0 && (
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                isPaused ? 'bg-yellow-500' : 'bg-purple-500'
+                              }`}>
+                                {isPaused ? 'PAUSED' : 'NOW PLAYING'}
+                              </span>
+                            )}
+                            {index > 0 && index < 3 && (
+                              <span className="text-xs bg-blue-500 px-2 py-1 rounded">DOWNLOADING</span>
+                            )}
+                          </div>
+                          <div className="text-gray-400 text-sm truncate">{song.artist}</div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <span className="text-purple-400 text-sm font-medium">
+                            {formatDuration(song.duration)}
+                          </span>
+                          
+                          <button
+                            onClick={() => handleDeleteSong(song.id)}
+                            className="p-2 bg-red-500 bg-opacity-20 hover:bg-opacity-30 rounded-lg transition-all border border-red-500 border-opacity-30 group"
+                            title="Remove from queue"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400 group-hover:text-red-300" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-6 text-center">
+              <p className="text-purple-300 text-sm mb-2">
+                🎵 TRUE 10-second crossfade overlap • Silence removal • Pre-downloading
+              </p>
+              <div className="flex gap-4 justify-center">
+                <a href="/" className="text-purple-400 hover:text-purple-300 text-sm underline">User Interface</a>
+                <a href="/settings.html" className="text-purple-400 hover:text-purple-300 text-sm underline">Settings</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DJAdminDashboard />);
+  </script>
+</body>
+</html>
