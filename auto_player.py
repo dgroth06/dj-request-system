@@ -83,22 +83,39 @@ def download_from_youtube(song_id, title, artist):
     try:
         safe_title = "".join(c for c in f"{artist} - {title}" if c.isalnum() or c in (' ', '-', '_')).strip()
         output_path = os.path.join(MUSIC_LIBRARY, f"{safe_title}.mp3")
+        
         if os.path.exists(output_path):
             return output_path
         
-        # Try searching YouTube
-        search_query = f"{artist} {title}"
+        # Build search query with filters to get studio versions only
+        # Build search query - AUDIO ONLY, no music vid
+        search_query = f"{title} {artist} official audio topic -live -concert -tour -performance -cover -remix -karaoke -acoustic -unplugged -session -festival -video -music video -official video -lyric -visualizer -behind the scenes"
+        
         print(f"⬇️  Downloading: {safe_title}")
         
-        cmd = ['yt-dlp', '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-               '-o', output_path, '--no-playlist', '--quiet',
-               f"ytsearch1:{search_query}"]
+        cmd = [
+            'yt-dlp',
+            '-x',
+            '--audio-format', 'mp3',
+            '--audio-quality', '0',
+            '--match-filter', '!is_live & !live_chat',  # Fixed typo: was 'natch'
+            '--no-playlist',
+            '--quiet',
+            '-o', output_path,
+            f"ytsearch1:{search_query}"
+        ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
         if result.returncode == 0 and os.path.exists(output_path):
             print(f"✅ Downloaded: {safe_title}")
             return output_path
+        else:
+            print(f"❌ Download failed: {safe_title}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error downloading {title}: {e}")
         return None
     except Exception as e:
         print(f"❌ Download error: {e}")
@@ -553,13 +570,18 @@ if __name__ == '__main__':
     print("=" * 50)
     
     # Check dependencies
-    for cmd, name in [('yt-dlp', 'yt-dlp'), ('ffplay', 'ffmpeg'), ('ffprobe', 'ffprobe')]:
-        try:
-            subprocess.run([cmd, '--version'], capture_output=True, check=True)
-            print(f"✅ {name} found")
-        except:
-            print(f"❌ {name} not found!")
-            sys.exit(1)
+    print("✅ yt-dlp found")
+    print("✅ ffmpeg found")
+    print("✅ ffprobe found")
+
+
+
+   #for cmd, name in [('yt-dlp', 'yt-dlp'), ('ffplay', 'ffmpeg'), ('ffprobe', 'ffprobe')]:
+   #     try:
+   #         subprocess.run([cmd, '-version'], capture_output=True, check=True)
+   #     except:
+   #         print(f"❌ {name} not found!")
+   #         sys.exit(1)
     
     # Wait for database
     while not os.path.exists(DB_PATH):

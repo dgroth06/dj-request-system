@@ -15,7 +15,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
     const API_URL = window.location.origin + '/api';
-    const PLAYER_URL = 'http://localhost:8888';
+    const PLAYER_URL = window.location.protocol + '//' + window.location.hostname + ':8888';
 
     // Icon Components
     const Music = ({ className }) => (
