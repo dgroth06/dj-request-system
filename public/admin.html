@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DJ Admin Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        h1 {
+            margin-bottom: 5px;
+        }
+        
+        .subtitle {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .controls {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .control-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-warning {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .volume-control input[type="range"] {
+            flex: 1;
+        }
+        
+        .status-panel {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .status-item {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .status-label {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        
+        .status-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .queue-panel {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .queue-item {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .queue-item-info {
+            flex: 1;
+        }
+        
+        .queue-item-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .queue-item-details {
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .queue-item-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .btn-small {
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+        
+        .empty-queue {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+        
+        .badge-pending {
+            background: #ff9800;
+        }
+        
+        .badge-downloaded {
+            background: #4caf50;
+        }
+        
+        .badge-playing {
+            background: #667eea;
+        }
+        
+        @media (max-width: 768px) {
+            .control-row {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎧 DJ Admin Panel</h1>
+        <p class="subtitle">Control your music system</p>
+    </div>
+    
+    <div class="status-panel">
+        <h2 style="margin-bottom: 15px;">System Status</h2>
+        <div class="status-grid">
+            <div class="status-item">
+                <div class="status-label">Now Playing</div>
+                <div class="status-value" id="nowPlaying">-</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Queue Length</div>
+                <div class="status-value" id="queueLength">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Volume</div>
+                <div class="status-value" id="currentVolume">100%</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Status</div>
+                <div class="status-value" id="playerStatus">Idle</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <h2 style="margin-bottom: 15px;">Playback Controls</h2>
+        
+        <div class="control-row">
+            <button class="btn btn-success" onclick="resumePlayback()">▶️ Play</button>
+            <button class="btn btn-warning" onclick="pausePlayback()">⏸️ Pause</button>
+            <button class="btn btn-danger" onclick="stopPlayback()">⏹️ Stop</button>
+            <button class="btn btn-primary" onclick="skipSong()">⏭️ Skip</button>
+        </div>
+        
+        <div class="volume-control">
+            <span>🔊 Volume:</span>
+            <input type="range" id="volumeSlider" min="0" max="100" value="100" 
+                   oninput="updateVolumeDisplay(this.value)" 
+                   onchange="setVolume(this.value)">
+            <span id="volumeDisplay">100%</span>
+        </div>
+    </div>
+    
+    <div class="queue-panel">
+        <div class="queue-header">
+            <h2>Request Queue</h2>
+            <button class="btn btn-danger btn-small" onclick="clearQueue()">Clear All</button>
+        </div>
+        <div id="queueContainer">
+            <div class="empty-queue">
+                <p>No requests in queue</p>
+                <p style="font-size: 14px; margin-top: 10px;">Waiting for song requests...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const API_URL = window.location.origin;
+        const AUDIO_API_URL = 'http://localhost:5001';
+        const socket = io(API_URL);
+        
+        let currentQueue = [];
+        
+        // WebSocket event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            loadQueue();
+        });
+        
+        socket.on('new-request', (request) => {
+            console.log('New request:', request);
+            loadQueue();
+        });
+        
+        socket.on('queue-update', () => {
+            loadQueue();
+        });
+        
+        // Load queue from server
+        async function loadQueue() {
+            try {
+                const response = await fetch(`${API_URL}/api/queue`);
+                const queue = await response.json();
+                currentQueue = queue;
+                renderQueue(queue);
+                updateQueueLength(queue.length);
+            } catch (error) {
+                console.error('Error loading queue:', error);
+            }
+        }
+        
+        // Render queue
+        function renderQueue(queue) {
+            const container = document.getElementById('queueContainer');
+            
+            if (queue.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-queue">
+                        <p>No requests in queue</p>
+                        <p style="font-size: 14px; margin-top: 10px;">Waiting for song requests...</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = queue.map((item, index) => `
+                <div class="queue-item">
+                    <div class="queue-item-info">
+                        <div class="queue-item-title">
+                            <span class="badge badge-${item.status}">${item.status}</span>
+                            ${item.song_title}
+                        </div>
+                        <div class="queue-item-details">
+                            ${item.artist ? `${item.artist} • ` : ''}
+                            Requested by ${item.requester_name || 'Anonymous'}
+                        </div>
+                    </div>
+                    <div class="queue-item-actions">
+                        ${!item.file_path ? `
+                            <button class="btn btn-primary btn-small" 
+                                    onclick="downloadSong(${item.id}, '${item.youtube_url || item.song_title + ' ' + item.artist}')">
+                                ⬇️ Download
+                            </button>
+                        ` : `
+                            <button class="btn btn-success btn-small" 
+                                    onclick="playSong('${item.file_path}')">
+                                ▶️ Play
+                            </button>
+                        `}
+                        <button class="btn btn-danger btn-small" 
+                                onclick="deleteRequest(${item.id})">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Download song
+        async function downloadSong(requestId, query) {
+            try {
+                // Use YouTube URL if provided, otherwise search for the song
+                let youtubeUrl = query;
+                if (!query.startsWith('http')) {
+                    // TODO: Implement YouTube search
+                    alert('Please provide a YouTube URL or implement search functionality');
+                    return;
+                }
+                
+                const response = await fetch(`${API_URL}/api/download`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        youtube_url: youtubeUrl,
+                        request_id: requestId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Download started! This may take a minute...');
+                    loadQueue();
+                } else {
+                    alert('Download failed: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error downloading song:', error);
+                alert('Download failed');
+            }
+        }
+        
+        // Play song
+        async function playSong(filePath) {
+            try {
+                const response = await fetch(`${AUDIO_API_URL}/play`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        file_path: filePath
+                    })
+                });
+                
+                if (response.ok) {
+                    console.log('Song added to playback queue');
+                    updatePlayerStatus();
+                }
+            } catch (error) {
+                console.error('Error playing song:', error);
+            }
+        }
+        
+        // Delete request
+        async function deleteRequest(id) {
+            if (!confirm('Delete this request?')) return;
+            
+            try {
+                await fetch(`${API_URL}/api/requests/${id}`, {
+                    method: 'DELETE'
+                });
+                loadQueue();
+            } catch (error) {
+                console.error('Error deleting request:', error);
+            }
+        }
+        
+        // Clear queue
+        async function clearQueue() {
+            if (!confirm('Clear entire queue?')) return;
+            
+            try {
+                const promises = currentQueue.map(item => 
+                    fetch(`${API_URL}/api/requests/${item.id}`, { method: 'DELETE' })
+                );
+                await Promise.all(promises);
+                loadQueue();
+            } catch (error) {
+                console.error('Error clearing queue:', error);
+            }
+        }
+        
+        // Playback controls
+        async function pausePlayback() {
+            try {
+                await fetch(`${AUDIO_API_URL}/pause`, { method: 'POST' });
+                updatePlayerStatus();
+            } catch (error) {
+                console.error('Error pausing:', error);
+            }
+        }
+        
+        async function resumePlayback() {
+            try {
+                await fetch(`${AUDIO_API_URL}/resume`, { method: 'POST' });
+                updatePlayerStatus();
+            } catch (error) {
+                console.error('Error resuming:', error);
+            }
+        }
+        
+        async function stopPlayback() {
+            try {
+                await fetch(`${AUDIO_API_URL}/stop`, { method: 'POST' });
+                updatePlayerStatus();
+            } catch (error) {
+                console.error('Error stopping:', error);
+            }
+        }
+        
+        async function skipSong() {
+            await stopPlayback();
+            // Next song will auto-play from queue
+        }
+        
+        // Volume controls
+        function updateVolumeDisplay(value) {
+            document.getElementById('volumeDisplay').textContent = value + '%';
+            document.getElementById('currentVolume').textContent = value + '%';
+        }
+        
+        async function setVolume(value) {
+            try {
+                await fetch(`${AUDIO_API_URL}/volume`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ volume: parseInt(value) })
+                });
+            } catch (error) {
+                console.error('Error setting volume:', error);
+            }
+        }
+        
+        // Update player status
+        async function updatePlayerStatus() {
+            try {
+                const response = await fetch(`${AUDIO_API_URL}/status`);
+                const status = await response.json();
+                
+                document.getElementById('nowPlaying').textContent = 
+                    status.current_song || '-';
+                document.getElementById('playerStatus').textContent = 
+                    status.is_playing ? 'Playing' : 'Idle';
+                document.getElementById('currentVolume').textContent = 
+                    status.volume + '%';
+                document.getElementById('volumeSlider').value = status.volume;
+                document.getElementById('volumeDisplay').textContent = status.volume + '%';
+            } catch (error) {
+                console.error('Error fetching player status:', error);
+            }
+        }
+        
+        function updateQueueLength(length) {
+            document.getElementById('queueLength').textContent = length;
+        }
+        
+        // Initial load
+        loadQueue();
+        updatePlayerStatus();
+        
+        // Update status every 5 seconds
+        setInterval(updatePlayerStatus, 5000);
+    </script>
+</body>
+</html>
