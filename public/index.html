@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DJ Song Requests</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .search-dropdown { 
+      position: absolute; 
+      z-index: 9999 !important; 
+    }
+    html, body, #root { 
+      min-height: 100vh; 
+    }
+    /* Ensure search container has enough space */
+    .search-container {
+      position: relative;
+      z-index: 100;
+    }
+    /* Prevent "Your Requests" box from covering dropdown */
+    .your-requests-box {
+      position: relative;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen">
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const API_URL = window.location.origin + '/api';
+    const DEFAULT_COLORS = { primary: '#8b5cf6', secondary: '#3b82f6', background: '#1e1b4e' };
+
+    const Music = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>);
+    const Search = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>);
+    const CheckCircle = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>);
+    const Clock = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>);
+    const PlayCircle = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>);
+    const ChevronDown = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>);
+    const ChevronUp = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>);
+    const Users = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>);
+    const List = ({ className }) => (<svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>);
+
+    function DJRequestInterface() {
+      const [searchQuery, setSearchQuery] = useState('');
+      const [searchResults, setSearchResults] = useState([]);
+      const [showDropdown, setShowDropdown] = useState(false);
+      const [isSearching, setIsSearching] = useState(false);
+      const [showWelcome, setShowWelcome] = useState(true);
+      const [requestSuccess, setRequestSuccess] = useState(false);
+      const [recentRequests, setRecentRequests] = useState([]);
+      const [cooldownSeconds, setCooldownSeconds] = useState(0);
+      const [queuedSongs, setQueuedSongs] = useState([]);
+      const [recentlyPlayedSongs, setRecentlyPlayedSongs] = useState([]);
+      const [errorMessage, setErrorMessage] = useState('');
+      const [nowPlaying, setNowPlaying] = useState(null);
+      const [userRequestCount, setUserRequestCount] = useState(0);
+      const [showFullQueue, setShowFullQueue] = useState(false);
+      const [settings, setSettings] = useState({ theme: 'general', explicitAllowed: true, colors: { ...DEFAULT_COLORS }, eventName: '', customMessage: '' });
+      const searchRef = useRef(null);
+      const MAX_USER_REQUESTS = 5;
+
+      const searchYouTubeMusic = async (query) => {
+        try { const r = await fetch(API_URL + '/search?q=' + encodeURIComponent(query)); if (!r.ok) throw new Error('Search failed'); const d = await r.json(); return d.songs || []; }
+        catch (e) { console.error('Search error:', e); setErrorMessage('Search failed. Try again.'); return []; }
+      };
+
+      useEffect(() => {
+        if (searchQuery.length < 2) { setSearchResults([]); setShowDropdown(false); return; }
+        const t = setTimeout(async () => { setIsSearching(true); setErrorMessage(''); const results = await searchYouTubeMusic(searchQuery); setSearchResults(results); setShowDropdown(true); setIsSearching(false); }, 400);
+        return () => clearTimeout(t);
+      }, [searchQuery]);
+
+      useEffect(() => { if (cooldownSeconds > 0) { const t = setInterval(() => { setCooldownSeconds(p => p - 1); }, 1000); return () => clearInterval(t); } }, [cooldownSeconds]);
+
+      useEffect(() => {
+        const loadData = async () => {
+          try {
+            const sr = await fetch(API_URL + '/settings'); if (sr.ok) { const sd = await sr.json(); if (sd.settings) { setSettings({ theme: sd.settings.theme || 'general', explicitAllowed: sd.settings.explicit_allowed !== undefined ? sd.settings.explicit_allowed : true, colors: sd.settings.colors || { ...DEFAULT_COLORS }, eventName: sd.settings.event_name || '', customMessage: sd.settings.custom_message || '' }); } }
+            const qr = await fetch(API_URL + '/queue'); if (qr.ok) { const qd = await qr.json(); setQueuedSongs(qd.queue || []); if (qd.queue && qd.queue.length > 0) { setNowPlaying(qd.queue[0]); } else { setNowPlaying(null); } }
+            const rr = await fetch(API_URL + '/recently-played'); if (rr.ok) { const rd = await rr.json(); setRecentlyPlayedSongs(rd.recentlyPlayed || []); }
+            const ur = await fetch(API_URL + '/user-request-count'); if (ur.ok) { const ud = await ur.json(); setUserRequestCount(ud.count || 0); }
+          } catch (e) { console.error('Load error:', e); }
+        };
+        loadData(); const i = setInterval(loadData, 3000); return () => clearInterval(i);
+      }, []);
+
+      useEffect(() => { const h = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) { setShowDropdown(false); } }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h); }, []);
+
+      const handleSongSelect = async (song) => {
+        if (cooldownSeconds > 0) return;
+        if (userRequestCount >= MAX_USER_REQUESTS) { setErrorMessage('Max ' + MAX_USER_REQUESTS + ' songs in queue!'); setTimeout(() => setErrorMessage(''), 3000); return; }
+        if (queuedSongs.some(s => s.song_id === song.id)) { setErrorMessage('Already in queue!'); setTimeout(() => setErrorMessage(''), 3000); return; }
+        if (recentlyPlayedSongs.some(s => s.song_id === song.id)) { setErrorMessage('Played recently!'); setTimeout(() => setErrorMessage(''), 3000); return; }
+        try {
+          const r = await fetch(API_URL + '/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song }) });
+          const d = await r.json();
+          if (!r.ok) { setErrorMessage(d.error || 'Failed'); setTimeout(() => setErrorMessage(''), 3000); return; }
+          setRecentRequests(p => [{ ...song, requestedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...p.slice(0, 4)]);
+          setQueuedSongs(p => [...p, { song_id: song.id, ...song }]);
+          setUserRequestCount(p => p + 1);
+          setRequestSuccess(true); setSearchQuery(''); setShowDropdown(false); setCooldownSeconds(30);
+          setTimeout(() => setRequestSuccess(false), 3000);
+        } catch (e) { console.error('Request error:', e); setErrorMessage('Failed. Try again.'); setTimeout(() => setErrorMessage(''), 3000); }
+      };
+
+      const isSongUnavailable = (song) => queuedSongs.some(s => s.song_id === song.id) || recentlyPlayedSongs.some(s => s.song_id === song.id);
+      const colors = settings.colors || DEFAULT_COLORS;
+      const bgStyle = { background: `linear-gradient(to bottom right, ${colors.background || '#1e1b4e'}, ${colors.primary || '#8b5cf6'}15)` };
+
+      if (showWelcome) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4" style={bgStyle}>
+            <div className="max-w-md w-full bg-black bg-opacity-60 backdrop-blur-lg rounded-3xl p-8 shadow-2xl border border-opacity-30" style={{ borderColor: colors.primary }}>
+              <div className="text-center mb-8">
+                <div className="mx-auto mb-4 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})` }}><Music className="w-10 h-10 text-white" /></div>
+                <h1 className="text-3xl font-bold text-white mb-2">{settings.eventName || '🎵 DJ Song Requests'}</h1>
+                <p className="text-purple-200">{settings.customMessage || 'Request your favorite songs!'}</p>
+              </div>
+              <div className="space-y-4 mb-8">
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4"><Search className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" /><div><div className="text-white font-medium">Search Songs</div><div className="text-gray-400 text-sm">Find songs from YouTube Music</div></div></div>
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4"><Clock className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" /><div><div className="text-white font-medium">Queue Limits</div><div className="text-gray-400 text-sm">Max {MAX_USER_REQUESTS} songs, 30s cooldown</div></div></div>
+                <div className="flex items-start gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-4"><CheckCircle className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" /><div><div className="text-white font-medium">Auto-Play</div><div className="text-gray-400 text-sm">Professional crossfading between songs</div></div></div>
+              </div>
+              <button onClick={() => setShowWelcome(false)} className="w-full py-4 rounded-xl text-white font-bold text-lg transition-all transform hover:scale-105 shadow-lg" style={{ background: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})` }}>Start Requesting Songs</button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen p-4 pb-24" style={bgStyle}>
+          <div className="max-w-lg mx-auto">
+            <div className="text-center mb-6"><h1 className="text-2xl font-bold text-white mb-1">{settings.eventName || '🎵 DJ Song Requests'}</h1>{settings.customMessage && (<p className="text-purple-200 text-sm">{settings.customMessage}</p>)}</div>
+
+            {nowPlaying && (<div className="mb-6 rounded-2xl p-4 shadow-2xl" style={{ background: `linear-gradient(to r, ${colors.primary}, ${colors.secondary})` }}><div className="flex items-center gap-2 mb-2"><PlayCircle className="w-5 h-5 text-white" /><span className="text-white text-sm font-medium">Now Playing</span></div><div className="text-white font-bold text-lg truncate">{nowPlaying.title}</div><div className="text-purple-100 text-sm truncate">{nowPlaying.artist}</div></div>)}
+
+            {queuedSongs.length > 1 && (<div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-opacity-30" style={{ borderColor: colors.primary }}><div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><List className="w-5 h-5 text-purple-400" /><span className="text-white font-medium">Up Next ({queuedSongs.length - 1})</span></div><button onClick={() => setShowFullQueue(!showFullQueue)} className="text-purple-400 hover:text-white">{showFullQueue ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}</button></div><div className="space-y-2">{(showFullQueue ? queuedSongs.slice(1) : queuedSongs.slice(1, 4)).map((s, i) => (<div key={s.id || i} className="flex items-center gap-3 bg-gray-900 bg-opacity-50 rounded-lg p-2"><div className="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">{i + 2}</div><div className="flex-1 min-w-0"><div className="text-white text-sm font-medium truncate">{s.title}</div><div className="text-gray-400 text-xs truncate">{s.artist}</div></div></div>))}{!showFullQueue && queuedSongs.length > 4 && (<button onClick={() => setShowFullQueue(true)} className="text-purple-400 text-sm hover:text-white w-full text-center py-1">+{queuedSongs.length - 4} more</button>)}</div></div>)}
+
+            {requestSuccess && (<div className="mb-6 bg-green-500 bg-opacity-20 border border-green-500 rounded-lg p-4 flex items-center gap-3"><CheckCircle className="w-6 h-6 text-green-400" /><span className="text-green-200 font-medium">Song added!</span></div>)}
+            {errorMessage && (<div className="mb-6 bg-red-500 bg-opacity-20 border border-red-500 rounded-lg p-4"><span className="text-red-200 font-medium">{errorMessage}</span></div>)}
+            {cooldownSeconds > 0 && (<div className="mb-6 bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-4 flex items-center gap-3"><Clock className="w-6 h-6 text-yellow-400" /><span className="text-yellow-200 font-medium">Wait {cooldownSeconds}s</span></div>)}
+
+            <div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30 mb-6 search-container" style={{ borderColor: colors.primary }}>
+              <div className="relative" ref={searchRef}>
+                <div className="relative"><Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-purple-400 w-5 h-5" /><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => searchResults.length > 0 && setShowDropdown(true)} placeholder="Search for a song..." disabled={userRequestCount >= MAX_USER_REQUESTS} className="w-full bg-gray-900 bg-opacity-50 text-white pl-12 pr-4 py-4 rounded-lg border border-purple-500 border-opacity-30 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed" />{isSearching && (<div className="absolute right-4 top-1/2 transform -translate-y-1/2"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-500"></div></div>)}</div>
+                {userRequestCount >= MAX_USER_REQUESTS && (<p className="text-yellow-300 text-sm mt-2">Max {MAX_USER_REQUESTS} songs. Wait for some to play!</p>)}
+                {showDropdown && searchResults.length > 0 && (<div className="search-dropdown absolute left-0 right-0 mt-2 bg-gray-900 rounded-lg border border-purple-500 border-opacity-30 shadow-2xl max-h-80 overflow-y-auto">{searchResults.map((song) => { const unavailable = isSongUnavailable(song); const disabled = unavailable || cooldownSeconds > 0 || userRequestCount >= MAX_USER_REQUESTS; return (<button key={song.id} onClick={() => !disabled && handleSongSelect(song)} disabled={disabled} className={`w-full text-left p-4 transition-colors border-b border-gray-800 last:border-b-0 group ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-800' : 'hover:bg-purple-900 hover:bg-opacity-30'}`}><div className="flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><div className={`font-medium mb-1 truncate ${disabled ? 'text-gray-500' : 'text-white group-hover:text-purple-300'}`}>{song.title}</div><div className="text-gray-400 text-sm truncate">{song.artist}</div>{unavailable && (<div className="text-red-400 text-xs mt-1">{queuedSongs.some(s => s.song_id === song.id) ? 'In queue' : 'Played recently'}</div>)}</div><div className={`text-sm whitespace-nowrap ${disabled ? 'text-gray-500' : 'text-purple-400'}`}>{song.duration}</div></div></button>); })}</div>)}
+              </div>
+            </div>
+
+            <div className="mb-6 bg-black bg-opacity-50 backdrop-blur-lg rounded-lg p-4 border border-opacity-30 flex items-center justify-between your-requests-box" style={{ borderColor: colors.primary }}><div className="flex items-center gap-2"><Users className="w-5 h-5 text-purple-400" /><span className="text-purple-200 font-medium">Your Requests</span></div><div className="text-white font-bold text-lg">{userRequestCount} / {MAX_USER_REQUESTS}</div></div>
+
+            {recentRequests.length > 0 && (<div className="bg-black bg-opacity-50 backdrop-blur-lg rounded-2xl p-6 shadow-2xl border border-opacity-30 mb-6" style={{ borderColor: colors.primary }}><div className="flex items-center gap-2 mb-4"><Clock className="w-5 h-5 text-purple-400" /><h2 className="text-xl font-bold text-white">Your Requests</h2></div><div className="space-y-3">{recentRequests.map((r, i) => (<div key={i} className="bg-gray-900 bg-opacity-50 rounded-lg p-3 border border-purple-500 border-opacity-20"><div className="flex justify-between items-start gap-3"><div className="flex-1 min-w-0"><div className="text-white font-medium text-sm mb-1 truncate">{r.title}</div><div className="text-gray-400 text-xs truncate">{r.artist}</div></div><div className="text-purple-400 text-xs whitespace-nowrap">{r.requestedAt}</div></div></div>))}</div></div>)}
+
+            <div className="text-center mt-8 text-purple-300 text-sm"><button onClick={() => setShowWelcome(true)} className="hover:text-white underline mb-3">View Instructions</button><div className="mt-4 pt-4 border-t border-purple-500 border-opacity-30"><p className="text-purple-400 mb-2 font-semibold">DJ Controls:</p><div className="flex gap-3 justify-center flex-wrap"><a href="/admin-player.html" className="bg-purple-600 bg-opacity-30 hover:bg-opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium border border-purple-500 border-opacity-30">🎛️ Admin Dashboard</a></div></div></div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DJRequestInterface />);
+  </script>
+</body>
+</html>
