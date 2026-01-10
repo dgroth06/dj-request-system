@@ -395,14 +395,14 @@ app.post('/api/auto-playlist/generate', (req, res) => {
     }
     
     // Get random songs from library that aren't already in auto-playlist queue
-    const { theme } = req.body;
+    const { theme } = req.body || {};
     let query = `
-      SELECT * FROM music_library 
-      WHERE downloaded = 1 
+      SELECT * FROM music_library
+      WHERE downloaded = 1
       AND id NOT IN (SELECT song_id FROM auto_playlist_queue)
     `;
     const params = [];
-    
+
     if (theme && theme !== 'general') {
       query += ' AND genre = ?';
       params.push(theme);
