@@ -417,10 +417,14 @@ def get_auto_playlist_song():
 
 def remove_auto_playlist_song(song_id):
     """Remove song from auto-playlist queue and trigger refill"""
+    global last_generate_time
     try:
         requests.delete(f"{SERVER_URL}/api/auto-playlist/{song_id}", timeout=5)
-        # Trigger generation to refill queue
-        requests.post(f"{SERVER_URL}/api/auto-playlist/generate", timeout=5)
+        # Rate limit generation to once per 5 seconds
+        current_time = time.time()
+        if current_time - last_generate_time > 5:
+            requests.post(f"{SERVER_URL}/api/auto-playlist/generate", timeout=5)
+            last_generate_time = current_time
     except Exception as e:
         print(f"Failed to remove auto-playlist song: {e}")
 
@@ -508,22 +512,29 @@ def play_queue():
                     title = auto_song.get('title', 'Unknown')
                     artist = auto_song.get('artist', 'Unknown')
                     auto_id = auto_song.get('id')
-                    
+
+                    # Validate file exists before attempting to play
+                    if not os.path.exists(file_path):
+                        print(f"⚠️  File not found: {file_path} - removing from queue")
+                        remove_auto_playlist_song(auto_id)
+                        time.sleep(2)
+                        continue
+
                     print(f"📀 Queue empty - playing from library: {title}")
-                    
+
                     with player_state.lock:
                         player_state.current_song = {'title': title, 'artist': artist, 'auto': True}
                         player_state.paused_position = 0
-                    
+
                     # Get next song from auto-playlist queue for crossfade
                     next_auto = get_auto_playlist_song()
                     # Skip first song (current) and get second
                     next_file = None
                     if next_auto and next_auto.get('id') != auto_id:
                         next_file = next_auto.get('file_path')
-                    
+
                     result = play_song_with_crossfade(file_path, next_file, None, is_auto=True)
-                    
+
                     # Remove played song from auto-playlist queue and refill
                     if result in ['completed', 'skipped']:
                         print(f"✅ Played: {title}")
