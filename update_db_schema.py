@@ -2,12 +2,24 @@ import sqlite3
 
 DB_PATH = 'dj_requests.db'
 
-print("🔧 Adding auto_playlist_queue table...")
+print("🔧 Updating database schema...")
 
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
+# Check if requester_name column exists in queue table
+cursor.execute("PRAGMA table_info(queue)")
+columns = [column[1] for column in cursor.fetchall()]
+
+if 'requester_name' not in columns:
+    print("  → Adding requester_name column to queue table...")
+    cursor.execute('ALTER TABLE queue ADD COLUMN requester_name TEXT DEFAULT "Anonymous"')
+    print("  ✅ Added requester_name column")
+else:
+    print("  ✓ requester_name column already exists")
+
 # Create auto_playlist_queue table
+print("  → Creating auto_playlist_queue table...")
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS auto_playlist_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,8 +31,9 @@ CREATE TABLE IF NOT EXISTS auto_playlist_queue (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 ''')
+print("  ✅ Created auto_playlist_queue table")
 
 conn.commit()
 conn.close()
 
-print("✅ Database updated with auto_playlist_queue table!")
+print("\n✅ Database schema updated successfully!")
