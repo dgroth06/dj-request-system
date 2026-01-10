@@ -1,13 +1,8 @@
 #!/bin/bash
 
 # Sync to GitHub Script
-# Usage: ./sync-to-github.sh "Brief description of changes"
-
-if [ -z "$1" ]; then
-    echo "Error: Please provide a description of your changes"
-    echo "Usage: ./sync-to-github.sh \"Your change description\""
-    exit 1
-fi
+# Usage: ./sync-to-github.sh [optional description]
+# If no description provided, will auto-generate from changes
 
 DESCRIPTION="$1"
 
@@ -15,26 +10,36 @@ echo "================================"
 echo "Syncing to GitHub"
 echo "================================"
 
+# Add all changes first
+git add .
+
 # Show what's changed
 echo ""
 echo "Files that will be committed:"
 git status --short
 
-# Add all changes
-echo ""
-echo "Adding files to git..."
-git add .
+# Generate description if not provided
+if [ -z "$DESCRIPTION" ]; then
+    echo ""
+    echo "Auto-generating commit description..."
+    CHANGED_FILES=$(git diff --cached --name-only | xargs -n1 basename | head -5 | paste -sd ", " -)
+    DESCRIPTION="Updated files: $CHANGED_FILES"
+fi
 
 # Create commit with timestamp and description
 TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
-COMMIT_MSG="Update: $DESCRIPTION
-
-Timestamp: $TIMESTAMP
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 echo ""
+echo "Commit message: $DESCRIPTION"
+echo ""
 echo "Creating commit..."
-git commit -m "$COMMIT_MSG"
+git commit -m "Update: $DESCRIPTION" -m "" -m "Timestamp: $TIMESTAMP" -m "Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "No changes to commit."
+    exit 0
+fi
 
 # Push to GitHub
 echo ""
@@ -47,4 +52,5 @@ echo "✓ Successfully synced to GitHub"
 echo "================================"
 echo ""
 echo "Your Raspberry Pi can now pull the latest version with:"
-echo "  git pull origin main"
+echo "  cd ~/dj-request-system"
+echo "  ./sync-from-github.sh"
