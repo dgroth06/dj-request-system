@@ -70,6 +70,7 @@ class PlayerState:
 player_state = PlayerState()
 stop_event = Event()
 download_lock = Lock()
+last_generate_time = 0  # Track last auto-playlist generation to prevent spam
 
 print("🎵 DJ Auto Player Starting...")
 os.makedirs(MUSIC_LIBRARY, exist_ok=True)
@@ -531,13 +532,18 @@ def play_queue():
                     with player_state.lock:
                         player_state.current_song = None
                         player_state.is_playing = False
-                    print("💤 No songs in auto-playlist queue - generating...")
-                    # Trigger queue generation
-                    try:
-                        requests.post(f"{SERVER_URL}/api/auto-playlist/generate", timeout=5)
-                    except:
-                        pass
-                    time.sleep(5)
+
+                    # Rate limit: only generate once every 30 seconds
+                    global last_generate_time
+                    current_time = time.time()
+                    if current_time - last_generate_time > 30:
+                        print("💤 No songs in auto-playlist queue - generating...")
+                        try:
+                            requests.post(f"{SERVER_URL}/api/auto-playlist/generate", timeout=5)
+                            last_generate_time = current_time
+                        except:
+                            pass
+                    time.sleep(10)
                     
         except Exception as e:
             print(f"❌ Loop error: {e}")
