@@ -256,33 +256,43 @@
         }
       };
       
-      // Update nowPlaying based on queue and playerStatus
+      // FIX: Drive nowPlaying entirely from actual player state (playerStatus.current_song)
+      // NOT from queue[0] — the queue shows what's requested, not what's actually playing.
+      // playerStatus.current_song is set by auto_player.py only when playback has started.
       useEffect(() => {
-        if (queue.length > 0) {
-          // Request queue has songs - show first one
-          setNowPlaying(queue[0]);
-        } else if (playerStatus.current_song && playerStatus.is_playing) {
-          // Queue empty but auto-playlist playing - show from playerStatus
+        if (playerStatus.current_song && (playerStatus.is_playing || playerStatus.is_paused)) {
           setNowPlaying(playerStatus.current_song);
         } else {
           setNowPlaying(null);
         }
-      }, [queue, playerStatus]);
+      }, [playerStatus]);
 
       const loadPlayerStatus = async () => {
         try {
-          const response = await fetch(`${PLAYER_URL}/status`);
+          // FIX: Use /api/status (proxied through Node server) instead of hitting
+          // port 8888 directly. Direct port access can fail due to browser CORS
+          // restrictions and network config on the Pi.
+          const response = await fetch(`${API_URL}/status`);
           if (response.ok) {
             const data = await response.json();
-            setPlayerStatus(data);
-            // Only update volume display if not dragging
+            // Map the API response fields to the shape the UI expects
+            const status = {
+              current_song: data.currentSong,
+              is_playing: data.isPlaying,
+              is_paused: data.isPaused,
+              is_auto_playlist: data.isAutoPlaylist,
+              position: data.position || 0,
+              duration: data.duration || 0,
+              volume: data.volume || 100
+            };
+            setPlayerStatus(status);
             if (!isDragging && data.volume !== undefined) {
               setVolume(data.volume);
               setLocalVolume(data.volume);
             }
           }
         } catch (error) {
-          // Player might not be running
+          // Server not running yet
         }
       };
 
@@ -315,7 +325,7 @@
       const handleSkipSong = async () => {
         try {
           await fetch(`${PLAYER_URL}/skip`, { method: 'POST' });
-          setTimeout(loadQueue, 500);
+          setTimeout(() => { loadQueue(); loadPlayerStatus(); }, 500);
         } catch (error) {
           console.error('Failed to skip song:', error);
         }
@@ -323,9 +333,7 @@
 
       const handlePauseResume = async () => {
         try {
-          // Check is_paused to determine action
           const endpoint = playerStatus.is_paused ? '/resume' : '/pause';
-          console.log(`Calling ${endpoint}, is_paused: ${playerStatus.is_paused}`);
           await fetch(`${PLAYER_URL}${endpoint}`, { method: 'POST' });
           setTimeout(loadPlayerStatus, 300);
         } catch (error) {
@@ -614,12 +622,15 @@
                         <div className="flex-1 min-w-0">
                           <div className="text-white font-semibold mb-1 truncate flex items-center gap-2">
                             {song.title}
-                            {index === 0 && (
+                            {index === 0 && nowPlaying && (nowPlaying.id === song.id || nowPlaying.title === song.title) && (
                               <span className={`text-xs px-2 py-1 rounded ${
                                 isPaused ? 'bg-yellow-500' : 'bg-purple-500'
                               }`}>
                                 {isPaused ? 'PAUSED' : 'NOW PLAYING'}
                               </span>
+                            )}
+                            {index === 0 && (!nowPlaying || (nowPlaying.title !== song.title)) && !isPlaying && !isPaused && (
+                              <span className="text-xs bg-blue-600 px-2 py-1 rounded">UP NEXT</span>
                             )}
                             {index > 0 && index < 3 && (
                               <span className="text-xs bg-blue-500 px-2 py-1 rounded">DOWNLOADING</span>

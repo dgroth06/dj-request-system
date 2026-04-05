@@ -66,11 +66,12 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 
 // Socket.IO connection
 io.on('connection', (socket) => {
-  console.log('🔌 Client connected');
-  
-  socket.on('disconnect', () => {
-    console.log('🔌 Client disconnected');
+  // Emit current queue immediately on connect
+  db.all('SELECT * FROM queue WHERE played = 0 ORDER BY requested_at ASC', [], (err, rows) => {
+    if (!err) socket.emit('queueUpdate', rows);
   });
+
+  socket.on('disconnect', () => {});
 });
 
 // Emit queue updates
@@ -91,48 +92,58 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Get queue - FIX: Properly select artist field
+// Get queue
 app.get('/api/queue', (req, res) => {
   db.all(
-    `SELECT 
-      id, 
-      song_id, 
-      title, 
-      artist,  
-      requested_at, 
-      played,
-      requester_name
-    FROM queue 
-    WHERE played = 0 
-    ORDER BY requested_at ASC`,
+    `SELECT id, song_id, title, artist, requested_at, played, requester_name
+     FROM queue WHERE played = 0 ORDER BY requested_at ASC`,
     [],
     (err, rows) => {
       if (err) {
         console.error('Queue fetch error:', err);
         return res.status(500).json({ error: 'Failed to fetch queue' });
       }
-      
       res.json({ queue: rows });
     }
   );
 });
 
-// Get current playing status - ENHANCED: Include automix info
+// FIX: Delete single song from queue (was missing)
+app.delete('/api/queue/:id', (req, res) => {
+  const { id } = req.params;
+  db.run('DELETE FROM queue WHERE id = ?', [id], function(err) {
+    if (err) {
+      console.error('Queue delete error:', err);
+      return res.status(500).json({ error: 'Failed to delete song' });
+    }
+    emitQueueUpdate();
+    res.json({ success: true, deleted: this.changes });
+  });
+});
+
+// FIX: Clear entire queue (was missing - admin-player used DELETE /api/queue)
+app.delete('/api/queue', (req, res) => {
+  db.run('DELETE FROM queue WHERE played = 0', function(err) {
+    if (err) {
+      console.error('Queue clear error:', err);
+      return res.status(500).json({ error: 'Failed to clear queue' });
+    }
+    emitQueueUpdate();
+    res.json({ success: true, cleared: this.changes });
+  });
+});
+
+// Get current playing status
 app.get('/api/status', async (req, res) => {
   try {
-    // Get player status from auto_player.py
     const playerResponse = await fetch('http://127.0.0.1:8888/status');
     const playerData = await playerResponse.json();
     
-    // Get queue from database
     const queueData = await new Promise((resolve, reject) => {
       db.all(
         'SELECT id, song_id, title, artist, requested_at FROM queue WHERE played = 0 ORDER BY requested_at ASC LIMIT 10',
         [],
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        }
+        (err, rows) => { if (err) reject(err); else resolve(rows); }
       );
     });
     
@@ -147,24 +158,51 @@ app.get('/api/status', async (req, res) => {
       queue: queueData
     });
   } catch (error) {
-    console.error('Status fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch status' });
+    // Player not running yet - return safe defaults
+    res.json({
+      currentSong: null,
+      isPlaying: false,
+      isPaused: false,
+      isAutoPlaylist: false,
+      volume: 100,
+      position: 0,
+      duration: 0,
+      queue: []
+    });
   }
+});
+
+// FIX: Stats endpoint (was missing - caused "active users" to always show 0)
+app.get('/api/stats', (req, res) => {
+  db.get(
+    `SELECT
+      (SELECT COUNT(*) FROM queue WHERE played = 0) as inQueue,
+      (SELECT COUNT(DISTINCT requester_name) FROM queue WHERE played = 0) as activeUsers,
+      (SELECT COUNT(*) FROM queue WHERE played = 1) as songsPlayed
+    `,
+    [],
+    (err, row) => {
+      if (err) {
+        console.error('Stats error:', err);
+        return res.status(500).json({ error: 'Failed to fetch stats' });
+      }
+      res.json({
+        inQueue: row ? row.inQueue : 0,
+        activeUsers: row ? row.activeUsers : 0,
+        songsPlayed: row ? row.songsPlayed : 0,
+        totalRequests: row ? (row.inQueue + row.songsPlayed) : 0
+      });
+    }
+  );
 });
 
 // Search songs
 app.get('/api/search', async (req, res) => {
   const { q } = req.query;
-  
-  if (!q || q.trim().length < 2) {
-    return res.json({ songs: [] });
-  }
-  
+  if (!q || q.trim().length < 2) return res.json({ songs: [] });
   try {
-    // Call Python music-api search
     const response = await fetch(`http://127.0.0.1:8888/search?q=${encodeURIComponent(q)}`);
     const data = await response.json();
-    
     res.json({ songs: data.songs || [] });
   } catch (error) {
     console.error('Search error:', error);
@@ -172,7 +210,7 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Request a song - FIX: Ensure artist is properly saved
+// Request a song
 app.post('/api/request', (req, res) => {
   const { song, requesterName } = req.body;
   
@@ -180,14 +218,7 @@ app.post('/api/request', (req, res) => {
     return res.status(400).json({ error: 'Invalid song data' });
   }
   
-  // Ensure artist has a value
   const artist = song.artist || 'Unknown Artist';
-  
-  console.log('🎵 Song request:', {
-    title: song.title,
-    artist: artist,
-    requester: requesterName || 'Anonymous'
-  });
   
   db.run(
     `INSERT INTO queue (song_id, title, artist, requester_name, requested_at, played) 
@@ -198,14 +229,8 @@ app.post('/api/request', (req, res) => {
         console.error('Request insert error:', err);
         return res.status(500).json({ error: 'Failed to add song to queue' });
       }
-      
-      console.log(`✅ Song added to queue (ID: ${this.lastID})`);
       emitQueueUpdate();
-      res.json({ 
-        success: true, 
-        queueId: this.lastID,
-        message: 'Song added to queue!' 
-      });
+      res.json({ success: true, queueId: this.lastID, message: 'Song added to queue!' });
     }
   );
 });
@@ -213,19 +238,13 @@ app.post('/api/request', (req, res) => {
 // Get user's request count
 app.get('/api/user-requests', (req, res) => {
   const { name } = req.query;
-  
-  if (!name) {
-    return res.json({ count: 0 });
-  }
+  if (!name) return res.json({ count: 0 });
   
   db.get(
     'SELECT COUNT(*) as count FROM queue WHERE requester_name = ? AND played = 0',
     [name],
     (err, row) => {
-      if (err) {
-        console.error('User request count error:', err);
-        return res.status(500).json({ error: 'Failed to fetch user requests' });
-      }
+      if (err) return res.status(500).json({ error: 'Failed to fetch user requests' });
       res.json({ count: row.count });
     }
   );
@@ -237,10 +256,7 @@ app.get('/api/recently-played', (req, res) => {
     'SELECT song_id, title, artist FROM recently_played ORDER BY played_at DESC LIMIT 50',
     [],
     (err, rows) => {
-      if (err) {
-        console.error('Recently played fetch error:', err);
-        return res.status(500).json({ error: 'Failed to fetch recently played' });
-      }
+      if (err) return res.status(500).json({ error: 'Failed to fetch recently played' });
       res.json({ songs: rows });
     }
   );
@@ -249,40 +265,32 @@ app.get('/api/recently-played', (req, res) => {
 // Get settings
 app.get('/api/settings', (req, res) => {
   db.get('SELECT * FROM settings WHERE id = 1', [], (err, row) => {
-    if (err) {
-      console.error('Settings fetch error:', err);
-      return res.status(500).json({ error: 'Failed to fetch settings' });
-    }
+    if (err) return res.status(500).json({ error: 'Failed to fetch settings' });
     
     if (!row) {
-      // Return default settings if none exist
       return res.json({
-        theme: 'general',
-        welcome_title: 'DJ Song Requests',
-        welcome_subtitle: 'Request your favorite songs!',
-        colors: {
-          primary: '#8b5cf6',
-          secondary: '#ec4899',
-          background: '#1a1625'
-        },
-        explicit_allowed: true
+        settings: {
+          theme: 'general',
+          welcome_title: 'DJ Song Requests',
+          welcome_subtitle: 'Request your favorite songs!',
+          colors: { primary: '#8b5cf6', secondary: '#ec4899', background: '#1a1625' },
+          explicit_allowed: true
+        }
       });
     }
     
-    // Parse JSON fields
     const settings = {
       ...row,
       colors: typeof row.colors === 'string' ? JSON.parse(row.colors) : row.colors
     };
     
-    res.json(settings);
+    res.json({ settings });
   });
 });
 
 // Update settings
 app.post('/api/settings', (req, res) => {
   const { theme, welcomeTitle, welcomeSubtitle, colors, explicitAllowed } = req.body;
-  
   const colorsJson = JSON.stringify(colors);
   
   db.run(
@@ -290,27 +298,17 @@ app.post('/api/settings', (req, res) => {
      VALUES (1, ?, ?, ?, ?, ?)`,
     [theme, welcomeTitle, welcomeSubtitle, colorsJson, explicitAllowed ? 1 : 0],
     (err) => {
-      if (err) {
-        console.error('Settings update error:', err);
-        return res.status(500).json({ error: 'Failed to update settings' });
-      }
-      
-      console.log('✅ Settings updated');
+      if (err) return res.status(500).json({ error: 'Failed to update settings' });
       io.emit('settingsUpdate', { theme, welcomeTitle, welcomeSubtitle, colors, explicitAllowed });
       res.json({ success: true });
     }
   );
 });
 
-// Clear queue
+// Keep old clear route for backward compat
 app.delete('/api/queue/clear', (req, res) => {
   db.run('DELETE FROM queue WHERE played = 0', function(err) {
-    if (err) {
-      console.error('Queue clear error:', err);
-      return res.status(500).json({ error: 'Failed to clear queue' });
-    }
-    
-    console.log(`🗑️ Cleared ${this.changes} songs from queue`);
+    if (err) return res.status(500).json({ error: 'Failed to clear queue' });
     emitQueueUpdate();
     res.json({ success: true, cleared: this.changes });
   });
@@ -319,241 +317,175 @@ app.delete('/api/queue/clear', (req, res) => {
 // Get random song from library for auto-playlist
 app.get('/api/library/random', (req, res) => {
   const { theme } = req.query;
-  
   let query = 'SELECT * FROM music_library WHERE downloaded = 1';
   const params = [];
-  
-  if (theme && theme !== 'general') {
-    query += ' AND genre = ?';
-    params.push(theme);
-  }
-  
+  if (theme && theme !== 'general') { query += ' AND genre = ?'; params.push(theme); }
   query += ' ORDER BY RANDOM() LIMIT 1';
   
   db.get(query, params, (err, row) => {
-    if (err) {
-      console.error('Library random song error:', err);
-      return res.status(500).json({ error: 'Failed to get random song' });
-    }
-    
-    if (!row) {
-      return res.json({ song: null });
-    }
-    
-    res.json({ 
-      song: {
-        song_id: row.song_id,
-        title: row.title,
-        artist: row.artist,
-        file_path: row.file_path
-      }
-    });
+    if (err) return res.status(500).json({ error: 'Failed to get random song' });
+    if (!row) return res.json({ song: null });
+    res.json({ song: { song_id: row.song_id, title: row.title, artist: row.artist, file_path: row.file_path } });
   });
 });
 
-// Get upcoming auto-playlist songs (for preview in admin)
+// Get library songs
+app.get('/api/library', (req, res) => {
+  const { genre } = req.query;
+  let query = 'SELECT * FROM music_library WHERE downloaded = 1';
+  const params = [];
+  if (genre && genre !== 'all') { query += ' AND genre = ?'; params.push(genre); }
+  query += ' ORDER BY artist ASC, title ASC';
+  
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch library' });
+    res.json({ library: rows });
+  });
+});
+
+// Get library genres
+app.get('/api/library/genres', (req, res) => {
+  db.all('SELECT DISTINCT genre FROM music_library WHERE downloaded = 1 AND genre IS NOT NULL ORDER BY genre', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch genres' });
+    res.json({ genres: rows.map(r => r.genre) });
+  });
+});
+
+// Get upcoming auto-playlist songs
 app.get('/api/library/upcoming', (req, res) => {
-  // Get songs from auto_playlist_queue table
-  db.all(
-    'SELECT * FROM auto_playlist_queue ORDER BY queue_position ASC',
-    [],
-    (err, rows) => {
-      if (err) {
-        console.error('Auto-playlist queue error:', err);
-        return res.status(500).json({ error: 'Failed to get auto-playlist queue' });
-      }
-      
-      const songs = rows.map(row => ({
-        id: row.id,
-        song_id: row.song_id,
-        title: row.title,
-        artist: row.artist,
-        file_path: row.file_path,
-        queue_position: row.queue_position,
-        source: 'auto_playlist'
-      }));
-      
-      res.json({ songs: songs });
-    }
-  );
+  db.all('SELECT * FROM auto_playlist_queue ORDER BY queue_position ASC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to get auto-playlist queue' });
+    res.json({ songs: rows.map(row => ({
+      id: row.id, song_id: row.song_id, title: row.title, artist: row.artist,
+      file_path: row.file_path, queue_position: row.queue_position, source: 'auto_playlist'
+    }))});
+  });
 });
 
 // Generate auto-playlist queue (fills up to 5 songs)
 app.post('/api/auto-playlist/generate', (req, res) => {
-  // First, check how many songs are already in queue
   db.get('SELECT COUNT(*) as count FROM auto_playlist_queue', [], (err, result) => {
-    if (err) {
-      console.error('Auto-playlist count error:', err);
-      return res.status(500).json({ error: 'Failed to count queue' });
-    }
+    if (err) return res.status(500).json({ error: 'Failed to count queue' });
     
     const currentCount = result.count;
     const needed = 5 - currentCount;
+    if (needed <= 0) return res.json({ success: true, added: 0, message: 'Queue already full' });
     
-    if (needed <= 0) {
-      return res.json({ success: true, added: 0, message: 'Queue already full' });
-    }
-    
-    // Get random songs from library that aren't already in auto-playlist queue
     const { theme } = req.body || {};
-    let query = `
-      SELECT * FROM music_library
-      WHERE downloaded = 1
-      AND id NOT IN (SELECT song_id FROM auto_playlist_queue)
-    `;
+    let query = `SELECT * FROM music_library WHERE downloaded = 1 AND CAST(id AS TEXT) NOT IN (SELECT CAST(song_id AS TEXT) FROM auto_playlist_queue)`;
     const params = [];
-
-    if (theme && theme !== 'general') {
-      query += ' AND genre = ?';
-      params.push(theme);
-    }
-    
+    if (theme && theme !== 'general') { query += ' AND genre = ?'; params.push(theme); }
     query += ` ORDER BY RANDOM() LIMIT ${needed}`;
     
     db.all(query, params, (err, rows) => {
-      if (err) {
-        console.error('Library fetch error:', err);
-        return res.status(500).json({ error: 'Failed to fetch library songs' });
-      }
-      
-      if (rows.length === 0) {
-        return res.json({ success: true, added: 0, message: 'No songs available in library' });
-      }
+      if (err) return res.status(500).json({ error: 'Failed to fetch library songs' });
+      if (rows.length === 0) return res.json({ success: true, added: 0, message: 'No songs available in library' });
       
       let added = 0;
-      const insertPromises = rows.map((row, index) => {
-        return new Promise((resolve) => {
-          db.run(
-            `INSERT INTO auto_playlist_queue (song_id, title, artist, file_path, queue_position)
-             VALUES (?, ?, ?, ?, ?)`,
-            [row.id, row.title, row.artist, row.file_path, currentCount + index + 1],
-            function(err) {
-              if (!err) added++;
-              resolve();
-            }
-          );
-        });
-      });
+      const insertPromises = rows.map((row, index) => new Promise((resolve) => {
+        db.run(
+          `INSERT INTO auto_playlist_queue (song_id, title, artist, file_path, queue_position) VALUES (?, ?, ?, ?, ?)`,
+          [row.id, row.title, row.artist, row.file_path, currentCount + index + 1],
+          function(err) { if (!err) added++; resolve(); }
+        );
+      }));
       
       Promise.all(insertPromises).then(() => {
-        console.log(`🎲 Generated ${added} auto-playlist songs`);
-        res.json({ success: true, added: added });
+        res.json({ success: true, added });
       });
     });
+  });
+});
+
+// FIX: Route ordering — /clear MUST come BEFORE /:id so Express doesn't treat "clear" as an ID
+app.delete('/api/auto-playlist/clear', (req, res) => {
+  db.run('DELETE FROM auto_playlist_queue', function(err) {
+    if (err) return res.status(500).json({ error: 'Failed to clear queue' });
+    res.json({ success: true, cleared: this.changes });
   });
 });
 
 // Remove song from auto-playlist queue
 app.delete('/api/auto-playlist/:id', (req, res) => {
   const { id } = req.params;
-  
   db.run('DELETE FROM auto_playlist_queue WHERE id = ?', [id], function(err) {
-    if (err) {
-      console.error('Auto-playlist delete error:', err);
-      return res.status(500).json({ error: 'Failed to delete song' });
-    }
-    
+    if (err) return res.status(500).json({ error: 'Failed to delete song' });
     // Reorder remaining songs
     db.run(`
       UPDATE auto_playlist_queue 
-      SET queue_position = (
-        SELECT COUNT(*) 
-        FROM auto_playlist_queue AS aq2 
-        WHERE aq2.queue_position < auto_playlist_queue.queue_position
-      ) + 1
-    `, [], (err) => {
-      if (err) {
-        console.error('Reorder error:', err);
-      }
-      console.log(`🗑️ Removed song from auto-playlist queue`);
+      SET queue_position = (SELECT COUNT(*) FROM auto_playlist_queue AS aq2 WHERE aq2.queue_position < auto_playlist_queue.queue_position) + 1
+    `, [], () => {
       res.json({ success: true });
     });
-  });
-});
-
-// Clear entire auto-playlist queue
-app.delete('/api/auto-playlist/clear', (req, res) => {
-  db.run('DELETE FROM auto_playlist_queue', function(err) {
-    if (err) {
-      console.error('Auto-playlist clear error:', err);
-      return res.status(500).json({ error: 'Failed to clear queue' });
-    }
-    
-    console.log(`🗑️ Cleared auto-playlist queue`);
-    res.json({ success: true, cleared: this.changes });
   });
 });
 
 // Add songs to bulk download queue
 app.post('/api/download-queue/bulk', (req, res) => {
   const { songs, genre } = req.body;
-  
   if (!songs || !Array.isArray(songs) || songs.length === 0) {
     return res.status(400).json({ error: 'Invalid songs array' });
   }
   
-  let added = 0;
-  let skipped = 0;
+  let added = 0, skipped = 0;
   
-  const insertSong = (song) => {
-    return new Promise((resolve) => {
-      // Check if already in queue
-      db.get(
-        'SELECT id FROM download_queue WHERE title = ? AND artist = ? AND status = "pending"',
-        [song.title, song.artist],
-        (err, existing) => {
-          if (existing) {
-            skipped++;
-            resolve();
-            return;
-          }
-          
-          // Generate song_id from title
-          const songId = (song.title || '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-          
-          db.run(
-            `INSERT INTO download_queue (song_id, title, artist, genre, status) 
-             VALUES (?, ?, ?, ?, 'pending')`,
-            [songId, song.title, song.artist || 'Unknown Artist', genre || 'general'],
-            function(err) {
-              if (err) {
-                console.error(`Failed to queue ${song.title}:`, err);
-                skipped++;
-              } else {
-                added++;
-              }
-              resolve();
-            }
-          );
-        }
-      );
-    });
-  };
+  const insertSong = (song) => new Promise((resolve) => {
+    db.get('SELECT id FROM download_queue WHERE title = ? AND artist = ? AND status = "pending"',
+      [song.title, song.artist],
+      (err, existing) => {
+        if (existing) { skipped++; resolve(); return; }
+        const songId = (song.title || '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        db.run(
+          `INSERT INTO download_queue (song_id, title, artist, genre, status) VALUES (?, ?, ?, ?, 'pending')`,
+          [songId, song.title, song.artist || 'Unknown Artist', genre || 'general'],
+          function(err) { if (err) skipped++; else added++; resolve(); }
+        );
+      }
+    );
+  });
   
   Promise.all(songs.map(insertSong)).then(() => {
-    console.log(`📥 Queued ${added} songs for download (${skipped} skipped)`);
-    res.json({ 
-      success: true, 
-      added: added,
-      skipped: skipped,
-      total: songs.length
-    });
+    res.json({ success: true, added, skipped, total: songs.length });
+  });
+});
+
+// FIX: Add missing /api/download-queue/next endpoint (process_download_queue in auto_player.py calls this)
+app.get('/api/download-queue/next', (req, res) => {
+  db.get("SELECT * FROM download_queue WHERE status = 'pending' ORDER BY added_at ASC LIMIT 1", [], (err, row) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch next download' });
+    res.json({ song: row || null });
+  });
+});
+
+// Update download queue item status
+app.post('/api/download-queue/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status, filePath, songId } = req.body;
+  
+  db.run('UPDATE download_queue SET status = ? WHERE id = ?', [status, id], function(err) {
+    if (err) return res.status(500).json({ error: 'Failed to update status' });
+    
+    // If completed, add to music library
+    if (status === 'completed' && filePath) {
+      db.get('SELECT * FROM download_queue WHERE id = ?', [id], (err, item) => {
+        if (item) {
+          db.run(
+            `INSERT OR IGNORE INTO music_library (song_id, title, artist, file_path, genre, downloaded) VALUES (?, ?, ?, ?, ?, 1)`,
+            [songId || item.song_id, item.title, item.artist, filePath, item.genre || 'general']
+          );
+        }
+      });
+    }
+    res.json({ success: true });
   });
 });
 
 // Get download queue status
 app.get('/api/download-queue', (req, res) => {
-  db.all(
-    'SELECT * FROM download_queue ORDER BY added_at DESC LIMIT 100',
-    [],
-    (err, rows) => {
-      if (err) {
-        console.error('Download queue fetch error:', err);
-        return res.status(500).json({ error: 'Failed to fetch download queue' });
-      }
-      res.json({ queue: rows });
-    }
-  );
+  db.all('SELECT * FROM download_queue ORDER BY added_at DESC LIMIT 100', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch download queue' });
+    res.json({ queue: rows });
+  });
 });
 
 // Start server
@@ -564,9 +496,6 @@ server.listen(PORT, '0.0.0.0', () => {
 ╠════════════════════════════════════════╣
 ║  Server running on port ${PORT}         ║
 ║  http://localhost:${PORT}               ║
-║                                        ║
-║  Access from network:                  ║
-║  http://YOUR_IP:${PORT}                 ║
 ╚════════════════════════════════════════╝
   `);
 });
