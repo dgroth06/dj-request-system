@@ -10,6 +10,7 @@ import sys
 import time
 import sqlite3
 import subprocess
+import shlex
 from pathlib import Path
 from threading import Thread, Event, Lock
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -114,10 +115,15 @@ def play_song(file_path):
         
         print(f"▶️  Playing: {os.path.basename(file_path)}")
         
+        # Use shlex.quote to properly escape the file path for shell
+        safe_path = shlex.quote(file_path)
+        
         # THE EXACT COMMAND THAT WORKS:
         # ffmpeg -i "file" -f s32le -ar 96000 -ac 2 - 2>/dev/null | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2
+        cmd = f'ffmpeg -i {safe_path} -f s32le -ar 96000 -ac 2 - 2>/dev/null | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2'
+        
         player_state.current_process = subprocess.Popen(
-            f'ffmpeg -i "{file_path}" -f s32le -ar 96000 -ac 2 - 2>/dev/null | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2',
+            cmd,
             shell=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -217,6 +223,7 @@ def play_queue():
                     if result in ['completed', 'skipped']:
                         mark_song_played(queue_id, song_id, title, artist)
                 else:
+                    print(f"❌ Could not find or download: {title}")
                     mark_song_played(queue_id, song_id, title, artist)
             else:
                 with player_state.lock:
