@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DJ Auto Player - ZERO audio processing
-Just ffplay with no filters, no effects, nothing
+DJ Auto Player - Direct ALSA output to Scarlett
+ZERO audio processing - raw signal only
 """
 
 import os
@@ -19,6 +19,9 @@ DB_PATH = 'dj_requests.db'
 MUSIC_LIBRARY = 'Music'
 CONTROL_PORT = 8888
 PRELOAD_COUNT = 3
+
+# Audio device - direct to Scarlett, bypassing PipeWire
+AUDIO_ENV = {**os.environ, 'AUDIODEV': 'hw:2,0'}
 
 class PlayerState:
     def __init__(self):
@@ -100,7 +103,7 @@ def get_audio_duration(file_path):
         return 0
 
 def play_song(file_path):
-    """Play audio - ABSOLUTELY NO FILTERS"""
+    """Play audio - ZERO FILTERS - direct to Scarlett via AUDIODEV"""
     try:
         duration = get_audio_duration(file_path)
         
@@ -113,11 +116,13 @@ def play_song(file_path):
         
         print(f"▶️  Playing: {os.path.basename(file_path)}")
         
-        # PURE FFPLAY - NO -af, NO FILTERS, NOTHING
+        # EXACTLY the command that worked: AUDIODEV=hw:2,0 ffplay -nodisp -autoexit -loglevel quiet
+        # NO -af, NO filters, NO processing - just raw audio
         player_state.current_process = subprocess.Popen(
-            ['ffplay', '-nodisp', '-autoexit', file_path],
+            ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', file_path],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            env=AUDIO_ENV
         )
         
         start_time = time.time()
@@ -280,8 +285,11 @@ class ControlHandler(BaseHTTPRequestHandler):
         pass
 
 if __name__ == '__main__':
-    print("🎵 DJ Auto Player - ZERO Processing")
-    print("=" * 40)
+    print("🎵 DJ Auto Player - Direct Scarlett Output")
+    print("=" * 45)
+    print("✅ AUDIODEV=hw:2,0 (direct ALSA)")
+    print("✅ ZERO filters, ZERO processing")
+    print("=" * 45)
     
     for cmd in ['yt-dlp', 'ffplay', 'ffprobe']:
         try:
@@ -300,7 +308,7 @@ if __name__ == '__main__':
     Thread(target=play_queue, daemon=True).start()
     print("✅ Player running")
     
-    # Listen on ALL interfaces so admin dashboard can connect
+    # Listen on ALL interfaces
     server = HTTPServer(('0.0.0.0', CONTROL_PORT), ControlHandler)
     print(f"🌐 Control server: port {CONTROL_PORT}")
     
