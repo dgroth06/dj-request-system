@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 DJ Auto Player - Direct ALSA output to Scarlett
-ZERO audio processing - raw signal only
+Uses: ffmpeg | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2
+ZERO processing - raw 32-bit audio at 96kHz
 """
 
 import os
@@ -19,9 +20,6 @@ DB_PATH = 'dj_requests.db'
 MUSIC_LIBRARY = 'Music'
 CONTROL_PORT = 8888
 PRELOAD_COUNT = 3
-
-# Audio device - direct to Scarlett, bypassing PipeWire
-AUDIO_ENV = {**os.environ, 'AUDIODEV': 'hw:2,0'}
 
 class PlayerState:
     def __init__(self):
@@ -103,7 +101,7 @@ def get_audio_duration(file_path):
         return 0
 
 def play_song(file_path):
-    """Play audio - ZERO FILTERS - direct to Scarlett via AUDIODEV"""
+    """Play audio using ffmpeg | aplay - direct to Scarlett at 96kHz S32_LE"""
     try:
         duration = get_audio_duration(file_path)
         
@@ -116,13 +114,13 @@ def play_song(file_path):
         
         print(f"▶️  Playing: {os.path.basename(file_path)}")
         
-        # EXACTLY the command that worked: AUDIODEV=hw:2,0 ffplay -nodisp -autoexit -loglevel quiet
-        # NO -af, NO filters, NO processing - just raw audio
+        # THE EXACT COMMAND THAT WORKS:
+        # ffmpeg -i "file" -f s32le -ar 96000 -ac 2 - 2>/dev/null | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2
         player_state.current_process = subprocess.Popen(
-            ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', file_path],
+            f'ffmpeg -i "{file_path}" -f s32le -ar 96000 -ac 2 - 2>/dev/null | aplay -D hw:2,0 -f S32_LE -r 96000 -c 2',
+            shell=True,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=AUDIO_ENV
+            stderr=subprocess.DEVNULL
         )
         
         start_time = time.time()
@@ -130,15 +128,21 @@ def play_song(file_path):
         while player_state.current_process.poll() is None:
             if stop_event.is_set():
                 player_state.current_process.terminate()
+                subprocess.run(['pkill', '-f', 'aplay'], capture_output=True)
+                subprocess.run(['pkill', '-f', 'ffmpeg'], capture_output=True)
                 return 'stopped'
             
             with player_state.lock:
                 if player_state.skip_requested:
                     player_state.skip_requested = False
                     player_state.current_process.terminate()
+                    subprocess.run(['pkill', '-f', 'aplay'], capture_output=True)
+                    subprocess.run(['pkill', '-f', 'ffmpeg'], capture_output=True)
                     return 'skipped'
                 if player_state.is_paused:
                     player_state.current_process.terminate()
+                    subprocess.run(['pkill', '-f', 'aplay'], capture_output=True)
+                    subprocess.run(['pkill', '-f', 'ffmpeg'], capture_output=True)
                     return 'paused'
                 player_state.position = time.time() - start_time
             
@@ -285,13 +289,13 @@ class ControlHandler(BaseHTTPRequestHandler):
         pass
 
 if __name__ == '__main__':
-    print("🎵 DJ Auto Player - Direct Scarlett Output")
+    print("🎵 DJ Auto Player - Scarlett 96kHz S32_LE")
     print("=" * 45)
-    print("✅ AUDIODEV=hw:2,0 (direct ALSA)")
-    print("✅ ZERO filters, ZERO processing")
+    print("✅ ffmpeg | aplay -D hw:2,0 -f S32_LE -r 96000")
+    print("✅ Direct ALSA - no PipeWire")
     print("=" * 45)
     
-    for cmd in ['yt-dlp', 'ffplay', 'ffprobe']:
+    for cmd in ['yt-dlp', 'ffmpeg', 'ffprobe', 'aplay']:
         try:
             subprocess.run([cmd, '--help'], capture_output=True, timeout=5)
             print(f"✅ {cmd}")
@@ -308,7 +312,6 @@ if __name__ == '__main__':
     Thread(target=play_queue, daemon=True).start()
     print("✅ Player running")
     
-    # Listen on ALL interfaces
     server = HTTPServer(('0.0.0.0', CONTROL_PORT), ControlHandler)
     print(f"🌐 Control server: port {CONTROL_PORT}")
     
@@ -317,3 +320,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\n🛑 Stopped")
         stop_event.set()
+        subprocess.run(['pkill', '-f', 'aplay'], capture_output=True)
+        subprocess.run(['pkill', '-f', 'ffmpeg'], capture_output=True)
